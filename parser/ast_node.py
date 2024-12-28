@@ -38,6 +38,7 @@ class DeclarationNode(AstNode):
             self.add_child(declarations)
 
 
+# CONST
 class ConstDeclarationNode(AstNode):
     def __init__(self, identifier, value):
         super().__init__()
@@ -45,6 +46,7 @@ class ConstDeclarationNode(AstNode):
         self.value = value
 
 
+# VAR
 class VarDeclarationNode(AstNode):
     def __init__(self, identifier, var_type):
         super().__init__()
@@ -52,6 +54,7 @@ class VarDeclarationNode(AstNode):
         self.var_type = var_type
 
 
+# TYPE
 class TypeNode(AstNode):
 
     def __init__(self, identifier_type, array_range=None):
@@ -88,12 +91,13 @@ class ArrayTypeNode(AstNode):
 
 
 class ProcedureOrFunctionDeclarationNode(AstNode):
-    def __init__(self, kind, identifier, parameters=None, block=None):
+    def __init__(self, kind, identifier, parameters=None, block=None, return_type=None):
         super().__init__()
         self.kind = kind
         self.identifier = identifier
         self.parameters = parameters
         self.block = block
+        self.return_type = return_type
 
     def __repr__(self):
         params = ', '.join(map(str, self.parameters)) if self.parameters else ''
@@ -242,6 +246,13 @@ class TermNode(AstNode):
                 result %= factor
             elif operator == "AND":
                 result = bool(result) and bool(factor)
+
+            # костыль для арифметики
+            else:
+                # Создать SimpleExpressionNode для передачи "наверх"
+                rest_factors = self.factors[i:]
+                simple_expr = SimpleExpressionNode(terms=[FactorNode(value=result)] + rest_factors)
+                return simple_expr.execute(context)
         return result
 
 
