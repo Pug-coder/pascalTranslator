@@ -70,24 +70,33 @@ class TypeNode(AstNode):
 
 
 class ParameterNode(AstNode):
-    def __init__(self, identifier, type_node):
+    def __init__(self, identifier, type_node, pass_mode=None):
         super().__init__()
-        self.identifier = identifier  # Имя параметра
-        self.type_node = type_node    # Тип параметра (это TypeNode)
+        self.identifier = identifier      # Имя параметра
+        self.type_node = type_node        # Тип (TypeNode или строка)
+        self.pass_mode = pass_mode        # Может быть None (по значению), 'var', 'const'
 
     def __repr__(self):
-        return f"{self.identifier}: {self.type_node}"
+        if self.pass_mode:
+            return f"{self.pass_mode} {self.identifier}: {self.type_node}"
+        else:
+            return f"{self.identifier}: {self.type_node}"
 
 
 class ArrayTypeNode(AstNode):
-    def __init__(self, lower_bound, upper_bound, element_type):
+    def __init__(self, lower_bound, upper_bound, element_type, initial_values=None):
         super().__init__()
-        self.lower_bound = lower_bound
-        self.upper_bound = upper_bound
-        self.element_type = element_type
+        self.lower_bound = lower_bound     # Строка с числом (например, "1")
+        self.upper_bound = upper_bound     # Строка с числом (например, "3")
+        self.element_type = element_type   # Может быть строка, TypeNode или другой узел
+        self.initial_values = initial_values  # Список значений (строки / числа) или None
 
     def __repr__(self):
-        return f"Array[{self.lower_bound}..{self.upper_bound}] of {self.element_type}"
+        init_str = ""
+        if self.initial_values is not None:
+            init_str = f" = ({', '.join(map(str, self.initial_values))})"
+        return f"Array[{self.lower_bound}..{self.upper_bound}] of {self.element_type}{init_str}"
+
 
 
 class ProcedureOrFunctionDeclarationNode(AstNode):
