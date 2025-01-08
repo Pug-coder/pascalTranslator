@@ -127,100 +127,196 @@ class Parser:
 
     def parse_const_declaration(self):
         """
-        ConstDeclaration = "CONST" {
-           IDENTIFIER
-             (
-                "=" (NUMBER | STRING)
-                |
-                ":" "array" "[" NUMBER ".." NUMBER "]" "of" IDENTIFIER [ "=" "(" (NUMBER|STRING) { "," (NUMBER|STRING) } ")" ]
-             )
-           ";"
-        }
+        Пример, позволяющий объявления вида:
+          const
+            x = 10;
+            y, z: integer = 20;
+            s, t: string = "Hello";
+            arr1, arr2: array [1..3] of integer = (1,2,3);
         """
         const_declarations = []
         self.consume(TokenType.CONST)
 
+        # Пока следующий токен - IDENTIFIER, значит есть ещё объявления
         while self.match(TokenType.IDENTIFIER):
-            const_name = self.consume(TokenType.IDENTIFIER)
+            # Сначала считываем список идентификаторов: (x, y, z)
+            identifiers = [self.consume(TokenType.IDENTIFIER)]
+            while self.match(TokenType.COMMA):
+                self.consume(TokenType.COMMA)
+                identifiers.append(self.consume(TokenType.IDENTIFIER))
 
-            # Три варианта: '=' (обычная константа), ':' (объявление массива), иначе ошибка.
-            if self.match(TokenType.EQ):
-                # Обычная константа
-                self.consume(TokenType.EQ)
-                if self.match(TokenType.NUMBER):
-                    const_value = self.consume(TokenType.NUMBER)
-                elif self.match(TokenType.STRING):
-                    const_value = self.consume(TokenType.STRING)
-                else:
-                    raise SyntaxError(
-                        f"Expected NUMBER or STRING for constant {const_name} "
-                        f"at line {self.current_token().line}, col {self.current_token().column}"
-                    )
+            declared_type = None
+            const_value = None
 
-                const_declarations.append(
-                    ConstDeclarationNode(identifier=const_name, value=const_value)
-                )
-                self.consume(TokenType.SEMICOLON)
-
-            elif self.match(TokenType.COLON):
-                # Объявление массива
+            if self.match(TokenType.COLON):
                 self.consume(TokenType.COLON)
-                if not self.match(TokenType.ARRAY):
-                    raise SyntaxError(
-                        f"Expected 'array' after ':' in constant declaration {const_name} "
-                        f"at line {self.current_token().line}, col {self.current_token().column}"
-                    )
-                array_info = self.parse_array_declaration(allow_initialization=True)
-                self.consume(TokenType.SEMICOLON)
 
-                const_declarations.append(
-                    ConstDeclarationNode(identifier=const_name, value=array_info)
-                )
+                # Парсим тип (простой или массив)
+                if self.match(TokenType.ARRAY):
+                    declared_type = self.parse_array_declaration(allow_initialization=False)
+                else:
+                    # Предположим, что тип может быть либо IDENTIFIER (например, integer),
+                    # либо STRING (если ваш лексер токенизирует ключевое слово 'string' как TokenType.STRING).
+                    if self.match(TokenType.IDENTIFIER):
+                        declared_type = self.consume(TokenType.IDENTIFIER)
+                    elif self.match(TokenType.STRING):
+                        declared_type = self.consume(TokenType.STRING)
+                    else:
+                        raise SyntaxError(
+                            f"Expected a type (IDENTIFIER or STRING) after ':' "
+                            f"at line {self.current_token().line}, col {self.current_token().column}"
+                        )
+
+                # Может быть инициализация через '='
+                if self.match(TokenType.EQ):
+                    self.consume(TokenType.EQ)
+                    const_value = self.parse_const_value()
+                    # parse_const_value может парсить NUMBER, STRING или массив в скобках (...)
+                    # смотрите пример ниже
+            elif self.match(TokenType.EQ):
+                # Случай: x = 10 (без явного типа)
+                self.consume(TokenType.EQ)
+                const_value = self.parse_const_value()
             else:
                 raise SyntaxError(
-                    f"Expected '=' or ':' after constant name {const_name} "
+                    f"Expected ':' or '=' after identifier(s) {identifiers} "
                     f"at line {self.current_token().line}, col {self.current_token().column}"
+                )
+
+            # В конце каждого объявления должно быть ';'
+            self.consume(TokenType.SEMICOLON)
+
+            # Теперь создаём ConstDeclarationNode на каждый идентификатор в группе
+            for ident in identifiers:
+                const_declarations.append(
+                    ConstDeclarationNode(identifier=ident, value=(declared_type, const_value))
                 )
 
         return const_declarations
 
+    def parse_const_value(self):
+        """
+        Пример метода, который парсит то, что может стоять после '=' в секции CONST.
+        Может быть:
+          - NUMBER
+          - STRING
+          - '(' список значений ')'
+          - (optionally) что-то ещё, если нужно
+        Возвращаем либо строку/число, либо список инициализаторов.
+        """
+        if self.match(TokenType.NUMBER):
+            return self.consume(TokenType.NUMBER)
+        elif self.match(TokenType.STRING):
+            return self.consume(TokenType.STRING)
+        elif self.match(TokenType.LPAREN):
+            # Парсим список значений в скобках
+            self.consume(TokenType.LPAREN)
+            values = []
+            while self.match(TokenType.NUMBER) or self.match(TokenType.STRING):
+                if self.match(TokenType.NUMBER):
+                    values.append(self.consume(TokenType.NUMBER))
+                else:
+                    values.append(self.consume(TokenType.STRING))
+
+                if self.match(TokenType.COMMA):
+                    self.consume(TokenType.COMMA)
+                else:
+                    break
+            self.consume(TokenType.RPAREN)
+            return values
+        else:
+            raise SyntaxError(
+                f"Expected NUMBER, STRING, or '(...)' after '=' in const declaration "
+                f"at line {self.current_token().line}, col {self.current_token().column}"
+            )
+
     def parse_var_declaration(self):
         """
-        VarDeclaration = "VAR"
-          {
-             IDENTIFIER ":"
-               (
-                 SimpleType
-                 | "array" "[" NUMBER ".." NUMBER "]" "of" SimpleType [ "=" "(" (NUMBER|STRING) { "," (NUMBER|STRING) } ")" ]
-               )
-             ";"
-          }
+        Пример, позволяющий объявления вида:
+          var
+            x, y: integer;
+            s: string;
+            arr1, arr2: array [1..3] of integer = (1,2,3);
         """
         var_declarations = []
         self.consume(TokenType.VAR)
 
+        # Пока следующий токен - IDENTIFIER, значит есть ещё объявления
         while self.match(TokenType.IDENTIFIER):
-            var_name = self.consume(TokenType.IDENTIFIER)
+            # Считываем список идентификаторов: (x, y, ...)
+            identifiers = [self.consume(TokenType.IDENTIFIER)]
+            while self.match(TokenType.COMMA):
+                self.consume(TokenType.COMMA)
+                identifiers.append(self.consume(TokenType.IDENTIFIER))
+
             self.consume(TokenType.COLON)
 
-            # Проверяем, это массив или обычный тип
+            # Парсим тип: либо массив, либо простой
+            declared_type = None
             if self.match(TokenType.ARRAY):
-                array_info = self.parse_array_declaration(allow_initialization=True)
-                self.consume(TokenType.SEMICOLON)
-
-                var_declarations.append(
-                    VarDeclarationNode(identifier=var_name, var_type=array_info)
-                )
+                declared_type = self.parse_array_declaration(allow_initialization=False)
             else:
-                # Иначе это обычный тип (integer, string, etc.)
-                type_name = self.consume(TokenType.IDENTIFIER)
-                self.consume(TokenType.SEMICOLON)
+                if self.match(TokenType.IDENTIFIER):
+                    declared_type = self.consume(TokenType.IDENTIFIER)
+                elif self.match(TokenType.STRING):
+                    declared_type = self.consume(TokenType.STRING)
+                else:
+                    raise SyntaxError(
+                        f"Expected a type (IDENTIFIER or STRING) after ':' "
+                        f"at line {self.current_token().line}, col {self.current_token().column}"
+                    )
 
+            # Опциональная инициализация: = ...
+            init_value = None
+            if self.match(TokenType.EQ):
+                self.consume(TokenType.EQ)
+                init_value = self.parse_var_init_value()
+
+            self.consume(TokenType.SEMICOLON)
+
+            # Для каждого идентификатора создаём отдельный VarDeclarationNode
+            for ident in identifiers:
                 var_declarations.append(
-                    VarDeclarationNode(identifier=var_name, var_type=type_name)
+                    VarDeclarationNode(identifier=ident, var_type=declared_type, init_value=init_value)
                 )
 
         return var_declarations
+
+    def parse_var_init_value(self):
+        """
+        Парсит инициализацию после '=' в секции var.
+        Может быть:
+          - Число / строка (для простых типов)  -> x, y: integer = 10;
+          - Список значений в скобках (для массива) -> arr: array [1..3] of integer = (1,2,3);
+        """
+        # Если это массив, чаще всего предполагается (value1, value2, ...).
+        # Но некоторые диалекты могут разрешать инициализацию простого типа прямо через =.
+        # Например, x: integer = 5;
+        if self.match(TokenType.LPAREN):
+            # Парсим (value1, value2, ...)
+            self.consume(TokenType.LPAREN)
+            values = []
+            while self.match(TokenType.NUMBER) or self.match(TokenType.STRING):
+                if self.match(TokenType.NUMBER):
+                    values.append(self.consume(TokenType.NUMBER))
+                else:
+                    values.append(self.consume(TokenType.STRING))
+
+                if self.match(TokenType.COMMA):
+                    self.consume(TokenType.COMMA)
+                else:
+                    break
+            self.consume(TokenType.RPAREN)
+            return values
+        elif self.match(TokenType.NUMBER):
+            return self.consume(TokenType.NUMBER)
+        elif self.match(TokenType.STRING):
+            return self.consume(TokenType.STRING)
+        else:
+            raise SyntaxError(
+                f"Expected '(' or NUMBER or STRING after '=' in var declaration "
+                f"at line {self.current_token().line}, col {self.current_token().column}"
+            )
 
     def parse_type(self):
         """
@@ -372,9 +468,6 @@ class Parser:
         return CompoundStatementNode(statements=statements)
 
     def parse_statement(self):
-        """Statement = AssignStatement | IfStatement | WhileStatement | ForStatement | ProcedureCall | CompoundStatement"""
-        token = self.current_token()
-
         if self.match(TokenType.IF):
             return self.parse_if_statement()
         elif self.match(TokenType.WHILE):
@@ -383,25 +476,54 @@ class Parser:
             return self.parse_for_statement()
         elif self.match(TokenType.BEGIN):
             return self.parse_compound_statement()
+
         elif self.match(TokenType.IDENTIFIER):
-            # Может быть присваивание или вызов процедуры
-            # Посмотрим дальше
             lookahead = self.tokens[self.pos + 1] if self.pos + 1 < len(self.tokens) else None
-            if lookahead and lookahead.type_ == TokenType.ASSIGN:
+
+            # Проверяем, если следующий токен ":=" или "[",
+            # значит это, скорее всего, присваивание (arr[i] := ...)
+            if lookahead and (lookahead.type_ == TokenType.ASSIGN or lookahead.type_ == TokenType.LBRACKET):
                 return self.parse_assign_statement()
             else:
                 return self.parse_procedure_call()
+
         else:
-            # Пустой оператор или что-то неожиданное
-            # В Паскале нет пустых операторов кроме ';' между ними, но мы можем вернуть None или поднять ошибку
-            raise SyntaxError(f"Unexpected token {token.type_} at line {token.line}, col {token.column}")
+            raise SyntaxError(
+                f"Unexpected token {self.current_token().type_} at line "
+                f"{self.current_token().line}, col {self.current_token().column}"
+            )
 
     def parse_assign_statement(self):
-        """AssignStatement = IDENTIFIER ":=" Expression"""
-        ident = self.consume(TokenType.IDENTIFIER)
+        """
+        AssignStatement = LValue ":=" Expression
+        где LValue может быть:
+          - IDENTIFIER
+          - IDENTIFIER '[' Expression ']'
+          - (и даже повторные '[]' для многомерных массивов, если нужно)
+        """
+        lval = self.parse_lvalue()
         self.consume(TokenType.ASSIGN)
         expr = self.parse_expression()
-        return AssignStatementNode(identifier=ident, expression=expr)
+        return AssignStatementNode(identifier=lval, expression=expr)
+
+    def parse_lvalue(self):
+        """
+        Считывает либо один идентификатор,
+        либо идентификатор со скобками для массива: arr[i], arr[i+1], ...
+        Если хотите поддержать многомерные массивы (arr[i,j]),
+        придётся распарсить список выражений внутри скобок.
+        """
+        base_ident = self.consume(TokenType.IDENTIFIER)
+
+        # Пока за идентификатором идёт [ ... ], повторяем
+        while self.match(TokenType.LBRACKET):
+            self.consume(TokenType.LBRACKET)
+            index_expr = self.parse_expression()
+            self.consume(TokenType.RBRACKET)
+            # Заворачиваем всё в ArrayAccessNode
+            base_ident = ArrayAccessNode(array_name=base_ident, index_expr=index_expr)
+
+        return base_ident
 
     def parse_if_statement(self):
         """IfStatement = "IF" Expression "THEN" Statement [ "ELSE" Statement ]"""
@@ -462,6 +584,28 @@ class Parser:
             self.consume(TokenType.RPAREN)
         return ProcedureCallNode(identifier=ident, arguments=args)
 
+    def parse_function_call(self, func_name):
+        """
+        Парсит вызов функции внутри выражения:
+          func_name ( expr1, expr2, ... )
+        Возвращает, например, FunctionCallNode(func_name, [expr1, expr2, ...])
+        """
+        self.consume(TokenType.LPAREN)
+        arguments = []
+
+        # Может быть пустой список аргументов:
+        if not self.match(TokenType.RPAREN):
+            # Парсим хотя бы одно выражение
+            arguments.append(self.parse_expression())
+
+            # Если несколько, они идут через запятую
+            while self.match(TokenType.COMMA):
+                self.consume(TokenType.COMMA)
+                arguments.append(self.parse_expression())
+
+        self.consume(TokenType.RPAREN)
+        return FunctionCallNode(func_name, arguments)
+
     def parse_expression(self):
         """Expression = SimpleExpression [ RelationalOperator SimpleExpression ]"""
         # Для простоты предположим, что parse_simple_expression уже есть
@@ -502,25 +646,55 @@ class Parser:
         return left
 
     def parse_factor(self):
-        """Factor = NUMBER | IDENTIFIER | "(" Expression ")" | "NOT" Factor"""
+        # (1) число
         if self.match(TokenType.NUMBER):
-            value = self.consume(TokenType.NUMBER)
-            return FactorNode(value=int(value))
+            val = self.consume(TokenType.NUMBER)
+            return FactorNode(value=val)
+
+        # (2) строка
         elif self.match(TokenType.STRING):
-            value = self.consume(TokenType.STRING)
-            return FactorNode(value=value)
+            val = self.consume(TokenType.STRING)
+            return FactorNode(value=val)
+
+        # (3) идентификатор => переменная, массив, или вызов функции
         elif self.match(TokenType.IDENTIFIER):
             ident = self.consume(TokenType.IDENTIFIER)
-            return FactorNode(identifier=ident)
+
+            # Могут быть индексы массива (arr[i]) — цикл while, если разрешаете многомерные
+            while self.match(TokenType.LBRACKET):
+                self.consume(TokenType.LBRACKET)
+                index_expr = self.parse_expression()
+                self.consume(TokenType.RBRACKET)
+                ident = ArrayAccessNode(array_name=ident, index_expr=index_expr)
+
+            # Теперь проверяем, не идёт ли вызов (   fun2( ... )
+            if self.match(TokenType.LPAREN):
+                # Это значит, что мы имеем вызов функции, а не просто идентификатор
+                func_call_node = self.parse_function_call(ident)
+                return func_call_node
+
+            # Иначе это просто FactorNode с identifier=ident
+            if isinstance(ident, str):  # Если так и осталось строкой
+                return FactorNode(identifier=ident)
+            else:
+                # Если ident превратился в ArrayAccessNode
+                return ident
+
+        # (4) скобки ( ... )
         elif self.match(TokenType.LPAREN):
             self.consume(TokenType.LPAREN)
-            expr = self.parse_expression()
+            inner_expr = self.parse_expression()
             self.consume(TokenType.RPAREN)
-            return FactorNode(sub_expression=expr)
+            return FactorNode(sub_expression=inner_expr)
+
+        # (5) NOT factor
         elif self.match(TokenType.NOT):
             self.consume(TokenType.NOT)
-            # парсим фактор для NOT
             factor = self.parse_factor()
             return FactorNode(sub_expression=factor, is_not=True)
+
         else:
-            raise SyntaxError(f"Unexpected token {self.current_token().type_} at line {self.current_token().line}")
+            raise SyntaxError(
+                f"Unexpected token {self.current_token().type_} "
+                f"at line {self.current_token().line}, col {self.current_token().column}"
+            )
