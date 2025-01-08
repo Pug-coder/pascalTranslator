@@ -51,9 +51,11 @@ class Parser:
 
         # Проверяем типы токенов, которые могут указывать на начало деклараций
         while self.match(TokenType.CONST) or self.match(TokenType.VAR) or \
-                self.match(TokenType.FUNCTION) or self.match(TokenType.PROCEDURE):
-
-            if self.match(TokenType.CONST):
+                self.match(TokenType.FUNCTION) or self.match(TokenType.PROCEDURE) \
+                or self.match(TokenType.TYPE):
+            if self.match(TokenType.TYPE):
+                declarations.extend(self.parse_type_section())
+            elif self.match(TokenType.CONST):
                 declarations.extend(self.parse_const_declaration())
             elif self.match(TokenType.VAR):
                 declarations.extend(self.parse_var_declaration())
@@ -318,6 +320,45 @@ class Parser:
                 f"at line {self.current_token().line}, col {self.current_token().column}"
             )
 
+    def parse_type_section(self):
+        """
+            TypeSection = "TYPE" { TypeDeclaration ";" }
+
+            Пример:
+              type
+                TPerson = record
+                  name: string;
+                  age: integer;
+                end;
+
+                TIntArray = array [1..10] of integer;
+            """
+        type_declarations = []
+        self.consume(TokenType.TYPE)
+
+        while self.match(TokenType.IDENTIFIER):
+            type_declarations.append(self.parse_type_declaration())
+
+        return type_declarations
+
+    def parse_type_declaration(self):
+        """
+        TypeDeclaration = IDENTIFIER "=" Type ";"
+
+        Пример:
+          TPerson = record ... end
+          TIntArray = array [1..10] of integer
+        """
+        name = self.consume(TokenType.IDENTIFIER)  # например, 'TPerson'
+        self.consume(TokenType.EQ)
+
+        the_type = self.parse_type()
+
+        if self.match(TokenType.SEMICOLON):
+            self.consume(TokenType.SEMICOLON)
+
+        return TypeDeclarationNode(name, the_type)
+
     def parse_type(self):
         """
         parse_type обрабатывает:
@@ -328,9 +369,14 @@ class Parser:
         """
         if self.match(TokenType.ARRAY):
             return self.parse_array_declaration()
-        else:
+        elif self.match(TokenType.RECORD):
+            return self.parse_record_type()
+        elif self.match(TokenType.IDENTIFIER):
             # Предположим, что это простой тип, т.е. IDENTIFIER (integer, string, real, и т.д.)
             type_name = self.consume(TokenType.IDENTIFIER)
+            return TypeNode(identifier_type=type_name)
+        elif self.match(TokenType.STRING):
+            type_name = self.consume(TokenType.STRING)
             return TypeNode(identifier_type=type_name)
 
     def parse_procedure_or_function_declaration(self):
@@ -482,7 +528,8 @@ class Parser:
 
             # Проверяем, если следующий токен ":=" или "[",
             # значит это, скорее всего, присваивание (arr[i] := ...)
-            if lookahead and (lookahead.type_ == TokenType.ASSIGN or lookahead.type_ == TokenType.LBRACKET):
+            if lookahead and (lookahead.type_ == TokenType.ASSIGN or lookahead.type_ == TokenType.LBRACKET or
+            lookahead.type_ == TokenType.DOT):
                 return self.parse_assign_statement()
             else:
                 return self.parse_procedure_call()
@@ -515,15 +562,70 @@ class Parser:
         """
         base_ident = self.consume(TokenType.IDENTIFIER)
 
-        # Пока за идентификатором идёт [ ... ], повторяем
-        while self.match(TokenType.LBRACKET):
-            self.consume(TokenType.LBRACKET)
-            index_expr = self.parse_expression()
-            self.consume(TokenType.RBRACKET)
-            # Заворачиваем всё в ArrayAccessNode
-            base_ident = ArrayAccessNode(array_name=base_ident, index_expr=index_expr)
+        # Пока за идентификатором идёт [ ... ] .field
+        while True:
+            if self.match(TokenType.LBRACKET):
+                # доступ к элементу массива
+                self.consume(TokenType.LBRACKET)
+                index_expr = self.parse_expression()
+                self.consume(TokenType.RBRACKET)
+                base_ident = ArrayAccessNode(array_name=base_ident, index_expr=index_expr)
+            elif self.match(TokenType.DOT):
+                # доступ к полю записи
+                self.consume(TokenType.DOT)
+                field = self.consume(TokenType.IDENTIFIER)  # имя поля
+                base_ident = RecordFieldAccessNode(record_obj=base_ident, field_name=field)
+            else:
+                # ничего из вышеуказанного
+                break
 
         return base_ident
+
+    def parse_record_type(self):
+        """
+        Синтаксис (упрощённо):
+          RECORD
+             IdentifierList : Type ;
+             IdentifierList : Type ;
+             ...
+          END
+        """
+        self.consume(TokenType.RECORD)
+
+        fields = []
+        # Пока не встретили 'END', читаем поля
+        while not self.match(TokenType.END):
+            # Парсим одну группу полей
+            #  например: name, surname: string;
+            #  или: x, y: integer;
+
+            # Сначала считываем список идентификаторов
+            identifiers = [self.consume(TokenType.IDENTIFIER)]
+            while self.match(TokenType.COMMA):
+                self.consume(TokenType.COMMA)
+                identifiers.append(self.consume(TokenType.IDENTIFIER))
+
+            self.consume(TokenType.COLON)
+            field_type = self.parse_type()
+
+            for ident in identifiers:
+                fields.append((ident, field_type))
+
+            if self.match(TokenType.SEMICOLON):
+                self.consume(TokenType.SEMICOLON)
+            else:
+                if self.match(TokenType.END):
+                    break
+                else:
+                    raise SyntaxError(
+                        f"Expected ';' or 'END' after record field declaration, got {self.current_token().type_} "
+                        f"at line {self.current_token().line}, col {self.current_token().column}"
+                    )
+
+        self.consume(TokenType.END)
+
+        # Создаём и возвращаем RecordTypeNode
+        return RecordTypeNode(fields=fields)
 
     def parse_if_statement(self):
         """IfStatement = "IF" Expression "THEN" Statement [ "ELSE" Statement ]"""
@@ -666,6 +768,13 @@ class Parser:
                 index_expr = self.parse_expression()
                 self.consume(TokenType.RBRACKET)
                 ident = ArrayAccessNode(array_name=ident, index_expr=index_expr)
+
+            while self.match(TokenType.DOT):
+                self.consume(TokenType.DOT)
+                field_ident = self.consume(TokenType.IDENTIFIER)
+                node = RecordFieldAccessNode(record_obj=ident, field_name=field_ident)
+
+                return node
 
             # Теперь проверяем, не идёт ли вызов (   fun2( ... )
             if self.match(TokenType.LPAREN):
