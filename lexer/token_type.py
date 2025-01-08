@@ -48,6 +48,7 @@ class TokenType(Enum):
 
 
     RECORD = auto()
+    TYPE = auto()
     ARRAY = auto()
     OF = auto()
 
