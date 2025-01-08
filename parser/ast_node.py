@@ -48,10 +48,11 @@ class ConstDeclarationNode(AstNode):
 
 # VAR
 class VarDeclarationNode(AstNode):
-    def __init__(self, identifier, var_type):
+    def __init__(self, identifier, var_type, init_value):
         super().__init__()
         self.identifier = identifier
         self.var_type = var_type
+        self.init_value = init_value
 
 
 # TYPE
@@ -97,6 +98,15 @@ class ArrayTypeNode(AstNode):
             init_str = f" = ({', '.join(map(str, self.initial_values))})"
         return f"Array[{self.lower_bound}..{self.upper_bound}] of {self.element_type}{init_str}"
 
+
+class ArrayAccessNode(AstNode):
+    def __init__(self, array_name, index_expr):
+        super().__init__()
+        self.array_name = array_name     # str (имя массива)
+        self.index_expr = index_expr     # ExpressionNode (индекс, который сам может быть выражением)
+
+    def __repr__(self):
+        return f"{self.array_name}[{self.index_expr}]"
 
 
 class ProcedureOrFunctionDeclarationNode(AstNode):
@@ -185,6 +195,17 @@ class ProcedureCallNode(StatementNode):
     def __repr__(self):
         args = ', '.join(map(str, self.arguments)) if self.arguments else ''
         return f"{self.identifier}({args})"
+
+
+class FunctionCallNode(AstNode):
+    def __init__(self, func_name, arguments=None):
+        super().__init__()
+        self.func_name = func_name        # строка, имя функции
+        self.arguments = arguments or []
+
+    def __repr__(self):
+        args = ", ".join(map(str, self.arguments))
+        return f"{self.func_name}({args})"
 
 
 class ExpressionNode(AstNode):
