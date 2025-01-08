@@ -75,3 +75,27 @@
     Это совпадает с поведением статических массивов в Паскале, где:
 
     Если массив объявлен глобально, его элементы инициализируются нулями по умолчанию.
+
+### Const declaration
+    ConstSection = "CONST" { ConstItem ";" }
+
+    ConstItem =
+        IdentifierList ":" (SimpleType | ArrayType) [ "=" ConstValue ]
+        |
+        Identifier "=" ConstValue
+    
+    IdentifierList = IDENTIFIER { "," IDENTIFIER }
+    
+    ConstValue =
+        NUMBER
+      | STRING
+      | "(" [ ValueItem { "," ValueItem } ] ")" 
+
+### Var
+    VarSection = "VAR" { VarItem ";" } ;
+
+    VarItem = IdentifierList ":" Type [ "=" VarInit ] ;
+    
+    IdentifierList = IDENTIFIER { "," IDENTIFIER } ;
+    Type          = (простой тип) | (array [..] of ...)
+    VarInit       = (число/строка) | "(" список значений ")"
