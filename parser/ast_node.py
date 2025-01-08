@@ -313,3 +313,36 @@ class RelationalOperatorNode(AstNode):
     def execute(self, context):
         # вспомогательный узел для выполнения оператора в ExpressionNode
         pass
+
+
+class TypeDeclarationNode(AstNode):
+    def __init__(self, name, type_node):
+        super().__init__()
+        self.name = name
+        self.type_node = type_node
+
+    def __repr__(self):
+        return f"{self.name} = {self.type_node}"
+
+
+class RecordTypeNode(AstNode):
+    def __init__(self, fields=None):
+        super().__init__()
+        # fields — это список пар (имя_поля, тип_поля)
+        # либо более сложная структура (список FieldDeclarationNode, если хотите)
+        self.fields = fields if fields is not None else []
+
+    def __repr__(self):
+        fields_str = "; ".join(f"{name}: {type_}" for (name, type_) in self.fields)
+        return f"record {fields_str} end"
+
+
+class RecordFieldAccessNode(AstNode):
+    def __init__(self, record_obj, field_name):
+        super().__init__()
+        self.record_obj = record_obj    # Может быть IDENTIFIER, ArrayAccessNode, или вложенный RecordFieldAccessNode
+        self.field_name = field_name
+
+    def __repr__(self):
+        return f"{self.record_obj}.{self.field_name}"
+
