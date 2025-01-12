@@ -1,10 +1,15 @@
 program Hello;
 
-var
-    x: integer;
+type
+  TPerson = record
+    name: string;
+    age: integer;
+  end;
 
+
+var
+    person: TPerson;
 
 begin
-  writeln := ("Hello, world");
-  x := (5 + 5) * 2
+    person.name := person.name1;
 end.

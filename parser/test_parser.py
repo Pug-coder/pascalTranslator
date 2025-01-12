@@ -2,7 +2,7 @@ from lexer.lexer import Lexer
 from parser import Parser
 
 
-lexer = Lexer(filename='../tests/lexer_tests/test_programm_block.pas')
+lexer = Lexer(filename='../tests/lexer_tests/test_declarations.pas')
 tokens = lexer.tokenize()
 
 for elem in tokens:

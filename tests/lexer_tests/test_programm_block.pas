@@ -35,7 +35,7 @@ begin
 		end;
 	end;
 
-   while number <> 0 do
+  while number <> 0 do
   begin
     isEven := (number mod 2 = 0);
     isDivisibleByThree := (number mod 3 = 0);
