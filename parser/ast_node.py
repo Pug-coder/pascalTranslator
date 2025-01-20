@@ -337,6 +337,17 @@ class RecordTypeNode(AstNode):
         return f"record {fields_str} end"
 
 
+class RecordInitializerNode(AstNode):
+    def __init__(self, fields):
+        super().__init__()
+        # fields — список (field_name_token, value_node)
+        self.fields = fields
+
+    def __repr__(self):
+        pairs_str = "; ".join(f"{name}: {val}" for name, val in self.fields)
+        return f"<RecordInit {pairs_str}>"
+
+
 class RecordFieldAccessNode(AstNode):
     def __init__(self, record_obj, field_name):
         super().__init__()

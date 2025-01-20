@@ -1,12 +1,26 @@
 from lexer.token_type import TokenType
 from lexer.token import Token
-from ast_node import *
+from .ast_node import *
 
 
 class Parser:
     def __init__(self, tokens):
         self.tokens = tokens  # Список токенов
         self.pos = 0  # Позиция текущего токена
+
+    def save_position(self):
+        return self.pos
+
+    def restore_position(self, saved_pos):
+        self.pos = saved_pos
+
+    def lookahead(self, offset):
+        """Посмотреть токен на offset позиций вперёд от текущего."""
+        index = self.pos + offset
+        if index < len(self.tokens):
+            return self.tokens[index]
+        # Если вышли за границы, возвращаем фиктивный токен EOF
+        return Token(TokenType.EOF, None, -1, -1)
 
     def current_token(self):
         """Получить текущий токен."""
@@ -20,8 +34,18 @@ class Parser:
         if token.type_ != expected_type:
             raise SyntaxError(
                 f"Expected {expected_type}, but got {token.type_} at line {token.line}, col {token.column}")
-        self.pos += 1
-        return token.value
+        self.pos += 1 # возможно придется поменять порядок
+        value = token.value
+
+        if expected_type == TokenType.NUMBER:
+            if not value.isnumeric():
+                raise ValueError(f"Expected numeric value, but got '{value}' at line {token.line}, col {token.column}")
+            value = int(value)
+            return value
+        elif expected_type == TokenType.STRING:
+            return value
+        else:
+            return token.value
 
     def match(self, token_type):
         """Проверяет тип текущего токена, не потребляя его."""
@@ -155,7 +179,7 @@ class Parser:
 
                 # Парсим тип (простой или массив)
                 if self.match(TokenType.ARRAY):
-                    declared_type = self.parse_array_declaration(allow_initialization=False)
+                    declared_type = self.parse_array_declaration(allow_initialization=True)
                 else:
                     # Предположим, что тип может быть либо IDENTIFIER (например, integer),
                     # либо STRING (если ваш лексер токенизирует ключевое слово 'string' как TokenType.STRING).
@@ -196,36 +220,105 @@ class Parser:
 
         return const_declarations
 
+    def parse_record_initializer(self):
+        """
+        Парсит синтаксис вида:
+          (field1: value1; field2: value2; ...)
+        Возвращает структуру (например, список кортежей [(field1, value1), (field2, value2), ...])
+        или специализированный узел RecordInitializerNode.
+        """
+        self.consume(TokenType.LPAREN)
+        fields = []
+
+        while True:
+            # Ожидаем идентификатор поля
+            if not self.match(TokenType.IDENTIFIER):
+                # Если мы не видим IDENTIFIER, возможно, это пустая/ошибочная инициализация
+                # Или мы дошли до RPAREN раньше времени
+                break
+            field_name_token = self.consume(TokenType.IDENTIFIER)
+
+            # Ожидаем двоеточие
+            self.consume(TokenType.COLON)
+
+            # Значение поля может быть любым "константным значением" (число, строка, массив или рекорд)
+            value = self.parse_const_value()
+
+            fields.append((field_name_token, value))
+
+            # После каждого поля может идти либо `;`, либо `)` если это последнее поле.
+            if self.match(TokenType.SEMICOLON):
+                self.consume(TokenType.SEMICOLON)
+                # и продолжаем цикл, если не встретили `)`
+                continue
+            elif self.match(TokenType.COMMA):
+                # Если вдруг вы хотите поддержать запятые вместо `;`
+                self.consume(TokenType.COMMA)
+                continue
+            else:
+                # Значит, либо закрывающая скобка, либо что-то нелегальное
+                break
+
+        # Завершаем скобки
+        self.consume(TokenType.RPAREN)
+        return RecordInitializerNode(fields)  # Или какой-то RecordInitializerNode(fields)
+
     def parse_const_value(self):
         """
-        Пример метода, который парсит то, что может стоять после '=' в секции CONST.
+        Парсит то, что может стоять справа от '=' в секции const.
         Может быть:
           - NUMBER
           - STRING
-          - '(' список значений ')'
-          - (optionally) что-то ещё, если нужно
-        Возвращаем либо строку/число, либо список инициализаторов.
+          - '(' ... ')' (это может быть массив ИЛИ record)
         """
         if self.match(TokenType.NUMBER):
             return self.consume(TokenType.NUMBER)
+
         elif self.match(TokenType.STRING):
             return self.consume(TokenType.STRING)
-        elif self.match(TokenType.LPAREN):
-            # Парсим список значений в скобках
-            self.consume(TokenType.LPAREN)
-            values = []
-            while self.match(TokenType.NUMBER) or self.match(TokenType.STRING):
-                if self.match(TokenType.NUMBER):
-                    values.append(self.consume(TokenType.NUMBER))
-                else:
-                    values.append(self.consume(TokenType.STRING))
 
-                if self.match(TokenType.COMMA):
-                    self.consume(TokenType.COMMA)
-                else:
-                    break
-            self.consume(TokenType.RPAREN)
-            return values
+        elif self.match(TokenType.LPAREN):
+            # Посмотрим, что за конструкция внутри скобок:
+            #   - Если после '(' сразу IDENTIFIER + ':' -> record
+            #   - Иначе (например, число, строка, '(') -> "массивная" инициализация
+            #     (или просто список значений).
+
+            # Смотрим "вперёд" на следующий токен и токен после него
+            # сохраним позицию парсера, чтобы проверить lookahead
+            saved_position = self.save_position()
+            self.consume(TokenType.LPAREN)
+
+            is_record_init = False
+
+            if self.match(TokenType.IDENTIFIER):
+                # берём этот IDENTIFIER
+                temp_id_token = self.current_token()
+                # смотрим дальше — двоеточие?
+                if self.lookahead(1).type_ == TokenType.COLON:
+                    # Похоже на record
+                    is_record_init = True
+
+            # восстанавливаемся к началу скобок, т.к. мы только глянули lookahead
+            self.restore_position(saved_position)
+
+            if is_record_init:
+                # Парсим record
+                return self.parse_record_initializer()
+            else:
+                # Парсим список значений (как было раньше)
+                self.consume(TokenType.LPAREN)
+                values = []
+                while self.match(TokenType.NUMBER) or self.match(TokenType.STRING) or self.match(TokenType.LPAREN):
+                    # Позволим вложенные скобки (на случай, если внутри массива лежит record)
+                    values.append(self.parse_const_value())
+
+                    if self.match(TokenType.COMMA):
+                        self.consume(TokenType.COMMA)
+                    else:
+                        break
+                self.consume(TokenType.RPAREN)
+                return values
+
         else:
             raise SyntaxError(
                 f"Expected NUMBER, STRING, or '(...)' after '=' in const declaration "
@@ -256,7 +349,7 @@ class Parser:
             # Парсим тип: либо массив, либо простой
             declared_type = None
             if self.match(TokenType.ARRAY):
-                declared_type = self.parse_array_declaration(allow_initialization=False)
+                declared_type = self.parse_array_declaration(allow_initialization=True)
             else:
                 if self.match(TokenType.IDENTIFIER):
                     declared_type = self.consume(TokenType.IDENTIFIER)

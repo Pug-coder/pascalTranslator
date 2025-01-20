@@ -43,7 +43,10 @@ class Lexer:
             self.next_char()
 
         value = self.text[start_pos:self.current_pos]
-        type_ = TokenType[value.upper()] if value.upper() in TokenType.__members__ else TokenType.IDENTIFIER
+        if value.lower() in ['number', 'string']:
+            type_ = TokenType.IDENTIFIER
+        else:
+            type_ = TokenType[value.upper()] if value.upper() in TokenType.__members__ else TokenType.IDENTIFIER
         return Token(type_, value, self.line, start_column)
 
     def read_string(self):
