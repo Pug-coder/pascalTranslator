@@ -89,46 +89,37 @@ class Parser:
         return declarations
 
     def parse_array_declaration(self, allow_initialization=True):
-        """
-        Парсит объявление массива вида:
-          array [lower_bound..upper_bound] of <element_type> [= (value1, value2, ...)]
-
-        Параметр allow_initialization управляет тем,
-        разрешаем ли мы конструкцию '= ( ... )' (например, в секции const или var).
-        Для параметров функций (если вы хотите поддержать передачу массивов по значению)
-        обычно инициализация не нужна.
-        """
-        # Уже знаем, что текущий токен - ARRAY
         self.consume(TokenType.ARRAY)
-
         self.consume(TokenType.LBRACKET)
-        lower_bound = self.consume(TokenType.NUMBER)  # предположим, это строка с числом
-        self.consume(TokenType.TWODOTS)
-        upper_bound = self.consume(TokenType.NUMBER)
-        self.consume(TokenType.RBRACKET)
 
+        dimensions = []
+        while True:
+            lower_bound = self.consume(TokenType.NUMBER)
+            self.consume(TokenType.TWODOTS)
+            upper_bound = self.consume(TokenType.NUMBER)
+            dimensions.append((lower_bound, upper_bound))
+
+            if not self.match(TokenType.COMMA):
+                break
+            self.consume(TokenType.COMMA)
+
+        self.consume(TokenType.RBRACKET)
         self.consume(TokenType.OF)
-        # Предположим, что тип массива это идентификатор (например, integer)
+
         if not self.match(TokenType.IDENTIFIER):
-            raise SyntaxError(
-                f"Expected type identifier after 'of' at line {self.current_token().line}, "
-                f"col {self.current_token().column}"
-            )
+            raise SyntaxError("Expected type identifier after 'of'")
+
         element_type = self.consume(TokenType.IDENTIFIER)
 
-        # Проверяем наличие инициализации:  = ( ... )
         array_values = None
         if allow_initialization and self.match(TokenType.EQ):
             self.consume(TokenType.EQ)
             self.consume(TokenType.LPAREN)
             array_values = []
 
-            # Собираем элементы в круглых скобках (числа или строки)
-            while self.match(TokenType.NUMBER) or self.match(TokenType.STRING):
-                if self.match(TokenType.NUMBER):
-                    array_values.append(self.consume(TokenType.NUMBER))
-                else:
-                    array_values.append(self.consume(TokenType.STRING))
+            # Используем parse_const_value для обработки вложенных массивов и структур
+            while not self.match(TokenType.RPAREN):
+                array_values.append(self.parse_const_value())
 
                 if self.match(TokenType.COMMA):
                     self.consume(TokenType.COMMA)
@@ -137,16 +128,9 @@ class Parser:
 
             self.consume(TokenType.RPAREN)
 
-        # Собираем всё в одну структуру (или можете возвращать отдельный узел)
-        array_info = {
-            "lower_bound": lower_bound,
-            "upper_bound": upper_bound,
-            "element_type": element_type,
-            "values": array_values,
-        }
+        # Возвращаем узел
         return ArrayTypeNode(
-            lower_bound=lower_bound,
-            upper_bound=upper_bound,
+            dimensions=dimensions,
             element_type=element_type,
             initial_values=array_values
         )
@@ -261,7 +245,7 @@ class Parser:
 
         # Завершаем скобки
         self.consume(TokenType.RPAREN)
-        return RecordInitializerNode(fields)  # Или какой-то RecordInitializerNode(fields)
+        return RecordInitializerNode(fields)
 
     def parse_const_value(self):
         """
@@ -305,7 +289,7 @@ class Parser:
                 # Парсим record
                 return self.parse_record_initializer()
             else:
-                # Парсим список значений (как было раньше)
+                # Парсим список значений
                 self.consume(TokenType.LPAREN)
                 values = []
                 while self.match(TokenType.NUMBER) or self.match(TokenType.STRING) or self.match(TokenType.LPAREN):

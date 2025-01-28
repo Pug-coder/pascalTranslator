@@ -84,19 +84,25 @@ class ParameterNode(AstNode):
             return f"{self.identifier}: {self.type_node}"
 
 
-class ArrayTypeNode(AstNode):
-    def __init__(self, lower_bound, upper_bound, element_type, initial_values=None):
-        super().__init__()
-        self.lower_bound = lower_bound     # Строка с числом (например, "1")
-        self.upper_bound = upper_bound     # Строка с числом (например, "3")
-        self.element_type = element_type   # Может быть строка, TypeNode или другой узел
-        self.initial_values = initial_values  # Список значений (строки / числа) или None
+class ArrayTypeNode:
+    def __init__(self, dimensions, element_type, initial_values=None):
+        """
+        Узел AST для массива.
+
+        :param dimensions: Список пар (lower_bound, upper_bound) для каждого измерения.
+        :param element_type: Тип элементов массива (например, integer, string).
+        :param initial_values: Список значений для инициализации массива (опционально).
+        """
+        self.dimensions = dimensions
+        self.element_type = element_type
+        self.initial_values = initial_values
 
     def __repr__(self):
-        init_str = ""
-        if self.initial_values is not None:
-            init_str = f" = ({', '.join(map(str, self.initial_values))})"
-        return f"Array[{self.lower_bound}..{self.upper_bound}] of {self.element_type}{init_str}"
+        return (
+            f"ArrayTypeNode(dimensions={self.dimensions}, "
+            f"element_type={self.element_type}, "
+            f"initial_values={self.initial_values})"
+        )
 
 
 class ArrayAccessNode(AstNode):
