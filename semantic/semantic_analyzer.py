@@ -22,14 +22,11 @@ class SemanticAnalyzer:
             elif isinstance(declaration, TypeDeclarationNode):
                 self.visit_type_declaration(declaration)
             elif isinstance(declaration, VarDeclarationNode):
-                self.visit_var_declaration()
+                self.visit_var_declaration(declaration)
             elif isinstance(declaration, ProcedureOrFunctionDeclarationNode):
                 self.visit_proc_or_func_declaration()
 
     def visit_compound_statement(self, node: CompoundStatementNode):
-        ...
-
-    def visit_var_declaration(self):
         ...
 
     def visit_proc_or_func_declaration(self):
@@ -125,13 +122,13 @@ class SemanticAnalyzer:
                 }
                 return arr_info
 
-        elif declaration_place == 'record':
+        elif declaration_place in ('var', 'record'):
             # Обработка для массива в записи
             arr_info = {
                 "element_type": node.element_type,
                 "size": size,
-                "dimensions": node.dimensions
-
+                "dimensions": node.dimensions,
+                "initial_values": node.initial_values
             }
 
             if node.element_type == "record":
@@ -190,15 +187,6 @@ class SemanticAnalyzer:
         elif isinstance(type_node, ArrayTypeNode):
             arr_info = self.create_array_info(type_node, "record")
             self.symbol_table.declare(name, arr_info)
-
-    def visit_const_declaration(self, node: ConstDeclarationNode):
-        name = node.identifier
-        const_value = node.value
-
-        info = self.look_const_type(const_value)
-
-        const_info = {"name": name, "info": info}
-        self.symbol_table.declare(name, info)
 
     def validate_record_initializer(self, record_type_info, initializer_node):
         """
@@ -264,6 +252,15 @@ class SemanticAnalyzer:
             "fields": {init_name: init_value for init_name, init_value in initializer_fields},
         }
 
+    def visit_const_declaration(self, node: ConstDeclarationNode):
+        name = node.identifier
+        const_value = node.value
+
+        info = self.look_const_type(const_value)
+
+        const_info = {"type": "const", "info": info}
+        self.symbol_table.declare(name, const_info)
+
     def look_const_type(self, value):
         const_type = None
         const_value = None
@@ -302,3 +299,185 @@ class SemanticAnalyzer:
 
         elif self.symbol_table.lookup(value[0]):
             pass
+
+    def visit_var_declaration(self, node: VarDeclarationNode):
+        name = node.identifier
+        init_value = node.init_value
+        var_type = node.var_type
+
+        info = self.look_var_type(var_type, init_value)
+
+        var_info = {"type": "var", "info": info}
+        self.symbol_table.declare(name, var_info)
+
+    def look_var_type(self, var_type, init_value):
+        """
+        var_type может быть:
+          - строка "integer" или "string"
+          - ArrayTypeNode(...)
+          - имя записи (например, "TPerson")
+        init_value: фактическое значение (список, RecordInitializerNode, ...) или None,
+                    если не инициализировано явно при объявлении.
+        """
+        type_checks = {
+            "integer": int,
+            "string": str,
+        }
+
+        # 1) Базовые типы
+        if var_type in type_checks:
+            expected_type = type_checks[var_type]
+            if init_value is not None:
+                if isinstance(init_value, expected_type):
+                    return {"type": var_type, "value": init_value}
+                else:
+                    raise Exception(f"Value is not {var_type.capitalize()}")
+            else:
+                # Значение не задано, проставим дефолт (0 или "")
+                default_val = 0 if expected_type is int else ""
+                return {"type": var_type, "value": default_val}
+
+        # 2) ArrayTypeNode
+        elif isinstance(var_type, ArrayTypeNode):
+
+            # Если init_value не задан, заполним массив дефолтными значениями
+            if var_type.initial_values is None:
+                init_value = self.fill_array_with_defaults(
+                    dimensions=var_type.dimensions,
+                    element_type=var_type.element_type
+                )
+                var_type.initial_values = init_value
+            # Вызываем create_array_info
+            info = self.create_array_info(var_type, declaration_place="var")
+            return info
+
+        # 3) Проверка: вдруг var_type — это имя записи (например, "TPerson")
+        else:
+            record_type_info = self.symbol_table.lookup(var_type)
+            if record_type_info and record_type_info.get("type") == "record":
+                # Если есть init_value, проверим через validate_record_initializer
+                if init_value is not None:
+                    if not isinstance(init_value, RecordInitializerNode):
+                        raise Exception(
+                            f"Expected RecordInitializerNode for record '{var_type}', "
+                            f"got {type(init_value).__name__}."
+                        )
+                    self.validate_record_initializer(record_type_info, init_value)
+                    return {
+                        "type": var_type,
+                        "value": init_value
+                    }
+                else:
+                    # Создаём пустой RecordInitializerNode по умолчанию
+                    default_record = self.create_default_record_initializer(record_type_info)
+                    return {
+                        "type": var_type,
+                        "value": default_record
+                    }
+
+            # 4) Иначе тип неизвестен
+            raise Exception(f"Unsupported variable type: {var_type}")
+
+    def create_default_value(self, type_name, extra_info=None):
+        """
+        Возвращает дефолтное (пустое) значение для заданного типа:
+          - integer -> 0
+          - string  -> ""
+          - record  -> RecordInitializerNode(...) со всеми полями по умолчанию
+          - массив  -> заполненный вложенный список (через fill_array_with_defaults)
+
+        Параметр extra_info может понадобиться для массивов или записей:
+          - Для массива: {"dimensions": [...], "element_type": ...}
+          - Для записи: словарь record_type_info (впрочем, можно получить его через symbol_table)
+        """
+        type_checks = {
+            "integer": 0,
+            "string": ""
+        }
+
+        # 1) Базовые типы: integer/string
+        if type_name in type_checks:
+            return type_checks[type_name]
+
+        # 2) Массив
+        if type_name == "array":
+            if not extra_info:
+                raise Exception("Array type requires extra_info with dimensions and element_type.")
+            return self.fill_array_with_defaults(
+                dimensions=extra_info["dimensions"],
+                element_type=extra_info["element_type"]
+            )
+
+        # 3) Попробуем найти запись (record) в таблице символов
+        record_type_info = self.symbol_table.lookup(type_name)
+        if record_type_info and record_type_info.get("type") == "record":
+            return self.create_default_record_initializer(record_type_info)
+
+        # 4) Иначе не знаем, что это
+        raise Exception(f"Unsupported or unknown type: {type_name}")
+
+    def fill_array_with_defaults(self, dimensions, element_type, level=0):
+        """
+        Рекурсивно создаёт многомерный массив с дефолтными значениями.
+        dimensions: список [(lower, upper), (lower, upper), ...]
+        element_type: строка типа (например, "integer", "string", "TPerson")
+                      или "array" (если вложенные массивы), и т. п.
+        """
+        if level == len(dimensions):
+            # Базовый случай: вернуть дефолтное значение для элемента
+            return self.create_default_value(element_type)
+
+        dim_lower, dim_upper = dimensions[level]
+        size = dim_upper - dim_lower + 1
+
+        return [
+            self.fill_array_with_defaults(dimensions, element_type, level + 1)
+            for _ in range(size)
+        ]
+
+    def create_default_record_initializer(self, record_type_info):
+        """
+        Создаёт RecordInitializerNode с полями по умолчанию на основе record_type_info.
+        Предполагается, что record_type_info содержит:
+          {
+            "name": "TPerson",
+            "type": "record",
+            "fields_info": [
+                {"field_name": "name", "field_type": "string"},
+                {"field_name": "age",  "field_type": "integer"},
+                ...
+            ]
+          }
+        """
+        if record_type_info.get("type") != "record":
+            raise Exception(
+                f"Type '{record_type_info.get('name')}' is not a record, got '{record_type_info.get('type')}' instead."
+            )
+
+        fields_info = record_type_info.get("fields_info")
+        if not fields_info:
+            raise Exception(f"Record '{record_type_info.get('name')}' has no fields info.")
+
+        initializer_fields = []
+        for field in fields_info:
+            field_name = field["field_name"]
+            field_type = field["field_type"]
+
+            if field_type == "array":
+                arr_info = field.get("arr_info")
+                if not arr_info:
+                    raise Exception(
+                        f"Field '{field_name}' in record '{record_type_info['name']}' is array but has no arr_info."
+                    )
+                default_val = self.fill_array_with_defaults(
+                    dimensions=arr_info["dimensions"],
+                    element_type=arr_info["element_type"]
+                )
+            else:
+                # Используем универсальную create_default_value
+                default_val = self.create_default_value(field_type)
+
+            initializer_fields.append((field_name, default_val))
+
+        return RecordInitializerNode(fields=initializer_fields)
+

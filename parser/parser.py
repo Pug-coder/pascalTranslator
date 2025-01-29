@@ -80,9 +80,9 @@ class Parser:
             if self.match(TokenType.TYPE):
                 declarations.extend(self.parse_type_section())
             elif self.match(TokenType.CONST):
-                declarations.extend(self.parse_const_declaration())
+                declarations.extend(self.parse_const_declaration(is_const=True))
             elif self.match(TokenType.VAR):
-                declarations.extend(self.parse_var_declaration())
+                declarations.extend(self.parse_const_declaration(is_const=False))
             elif self.match(TokenType.FUNCTION) or self.match(TokenType.PROCEDURE):
                 declarations.append(self.parse_procedure_or_function_declaration())
 
@@ -135,7 +135,7 @@ class Parser:
             initial_values=array_values
         )
 
-    def parse_const_declaration(self):
+    def parse_const_declaration(self, is_const: bool):
         """
         Пример, позволяющий объявления вида:
           const
@@ -144,8 +144,12 @@ class Parser:
             s, t: string = "Hello";
             arr1, arr2: array [1..3] of integer = (1,2,3);
         """
-        const_declarations = []
-        self.consume(TokenType.CONST)
+        declarations = []
+
+        if is_const:
+            self.consume(TokenType.CONST)
+        else:
+            self.consume(TokenType.VAR)
 
         # Пока следующий токен - IDENTIFIER, значит есть ещё объявления
         while self.match(TokenType.IDENTIFIER):
@@ -176,17 +180,19 @@ class Parser:
                             f"Expected a type (IDENTIFIER or STRING) after ':' "
                             f"at line {self.current_token().line}, col {self.current_token().column}"
                         )
+                    if is_const:
+                        if not self.match(TokenType.EQ):
+                            raise SyntaxError(
+                                f"Expected '=' after identifier(s) {identifiers} "
+                                f"at line {self.current_token().line}, col {self.current_token().column}"
+                            )
 
                 # Может быть инициализация через '='
                 if self.match(TokenType.EQ):
                     self.consume(TokenType.EQ)
                     const_value = self.parse_const_value()
                     # parse_const_value может парсить NUMBER, STRING или массив в скобках (...)
-                    # смотрите пример ниже
-            elif self.match(TokenType.EQ):
-                # Случай: x = 10 (без явного типа)
-                self.consume(TokenType.EQ)
-                const_value = self.parse_const_value()
+
             else:
                 raise SyntaxError(
                     f"Expected ':' or '=' after identifier(s) {identifiers} "
@@ -198,11 +204,14 @@ class Parser:
 
             # Теперь создаём ConstDeclarationNode на каждый идентификатор в группе
             for ident in identifiers:
-                const_declarations.append(
-                    ConstDeclarationNode(identifier=ident, value=(declared_type, const_value))
-                )
+                if is_const:
+                    declarations.append(
+                        ConstDeclarationNode(identifier=ident, value=(declared_type, const_value))
+                    )
+                else:
+                    declarations.append(VarDeclarationNode(identifier=ident, var_type=declared_type, init_value=const_value))
 
-        return const_declarations
+        return declarations
 
     def parse_record_initializer(self):
         """

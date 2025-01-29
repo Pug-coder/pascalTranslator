@@ -68,7 +68,10 @@
     MultiplicativeOperator = "*" | "/" | "DIV" | "MOD" | "AND" ;
 
 ### Заметки
+    Решено что типы ОБЯЗАТЕЛЬНО указываются явно
+
     Решено использовать только статические массивы опираясь на лекции по НУИЯП
+
     В  языке глобальная переменная (например, массив) компилируется в метку, 
     а память может быть инициализирована либо нулями, либо значениями, указанными в коде.
 
@@ -76,13 +79,15 @@
 
     Если массив объявлен глобально, его элементы инициализируются нулями по умолчанию.
 
+    для массивлв массивов используем type
+    type
+        a
+
 ### Const declaration
     ConstSection = "CONST" { ConstItem ";" }
 
     ConstItem =
-        IdentifierList ":" (SimpleType | ArrayType) [ "=" ConstValue ]
-        |
-        Identifier "=" ConstValue
+        IdentifierList ":" (SimpleType | ArrayType)  "=" ConstValue 
     
     IdentifierList = IDENTIFIER { "," IDENTIFIER }
     

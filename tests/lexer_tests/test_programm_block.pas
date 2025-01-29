@@ -6,16 +6,21 @@ type
     age: integer;
   end;
 
+type
+  TPerson1 = record
+    p: TPerson;
+  end;
+
 
 var
     x, y, i: string;
-    person: TPerson;
+    person: TPerson1;
 	arr1: array [1..3] of integer;
 	arr2: array [1..3] of integer = (1, 23, 456);
 	arr3: array [1..3] of integer;
 
 begin
-    person.name := "John";
+    person.p.name := "John";
     person.age := 25;
     arr[1] := 100;
 	for i := 1 to n do
