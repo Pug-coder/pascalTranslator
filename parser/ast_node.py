@@ -240,6 +240,20 @@ class ExpressionNode(AstNode):
                 return left_value >= right_value
         return left_value
 
+    def to_dict(self):
+        # Рекурсивно получаем представление левого подвыражения
+        left_repr = self.left.to_dict() if hasattr(self.left, 'to_dict') else str(self.left)
+        result = {
+            "node": "ExpressionNode",
+            "left": left_repr
+        }
+        # Если задан реляционный оператор и правая часть, добавляем их
+        if self.relational_operator and self.right:
+            right_repr = self.right.to_dict() if hasattr(self.right, 'to_dict') else str(self.right)
+            result["relational_operator"] = self.relational_operator
+            result["right"] = right_repr
+        return result
+
 
 class SimpleExpressionNode(AstNode):
     def __init__(self, terms, additive_operator=None):
@@ -258,6 +272,18 @@ class SimpleExpressionNode(AstNode):
                 result -= term
             elif operator == "OR":
                 result = bool(result) or bool(term)
+        return result
+
+    def to_dict(self):
+        result = {"node": "SimpleExpressionNode", "terms": []}
+        for item in self.terms:
+            if hasattr(item, 'to_dict'):
+                result["terms"].append(item.to_dict())
+            else:
+                # Если элемент является оператором-строкой или примитивом
+                result["terms"].append(item)
+        if self.additive_operator:
+            result["additive_operator"] = self.additive_operator
         return result
 
 
@@ -291,6 +317,18 @@ class TermNode(AstNode):
                 return simple_expr.execute(context)
         return result
 
+    def to_dict(self):
+        result = {"node": "TermNode", "factors": []}
+        for item in self.factors:
+            if hasattr(item, 'to_dict'):
+                result["factors"].append(item.to_dict())
+            else:
+                # Если элемент не имеет метода to_dict (например, оператор-строка)
+                result["factors"].append(item)
+        # Если multiplicative_operator задан отдельно (не обязательно, т.к. часто операторы уже входят в список factors)
+        if self.multiplicative_operator:
+            result["multiplicative_operator"] = self.multiplicative_operator
+        return result
 
 class FactorNode(AstNode):
     def __init__(self, value=None, identifier=None, sub_expression=None, is_not=False):
@@ -309,6 +347,19 @@ class FactorNode(AstNode):
             return self.sub_expression.execute(context)
         elif self.is_not:  # Операция NOT
             return not self.sub_expression.execute(context)
+
+    def to_dict(self):
+        if self.value is not None:
+            return {"node": "FactorNode", "value": self.value}
+        elif self.identifier is not None:
+            return {"node": "FactorNode", "identifier": self.identifier}
+        elif self.sub_expression is not None:
+            return {
+                "node": "FactorNode",
+                "sub_expression": self.sub_expression.to_dict(),
+                "is_not": self.is_not
+            }
+        return {"node": "FactorNode"}
 
 
 class RelationalOperatorNode(AstNode):

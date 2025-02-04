@@ -809,21 +809,24 @@ class Parser:
 
     def parse_simple_expression(self):
         """SimpleExpression = Term { AdditiveOperator Term }"""
-        left = self.parse_term()
+        left = self.parse_factor()
         # Смотрим есть ли +, -, OR
-        while self.match(TokenType.PLUS) or self.match(TokenType.MINUS) or self.match(TokenType.OR):
+        while self.match(TokenType.PLUS) or self.match(TokenType.MINUS) or self.match(TokenType.OR) or\
+                self.match(TokenType.ASTERISK) or self.match(TokenType.SLASH) or \
+                        self.match(TokenType.DIV) or self.match(TokenType.MOD) or self.match(TokenType.AND):
             op = self.current_token().value
             self.pos += 1
-            right = self.parse_term()
+            right = self.parse_factor()
             # В отличие от ранее показанного кода, SimpleExpressionNode мы
             # можем построить как цепочку или сделать сразу список термов и операторов.
             # Для упрощения сейчас просто вернём новый SimpleExpressionNode
             # Но лучше собирать в список.
-            left = SimpleExpressionNode(terms=[left, op, right])
+            left = SimpleExpressionNode(terms=[left, op, right], additive_operator=op)
         return left
 
-    def parse_term(self):
-        """Term = Factor { MultiplicativeOperator Factor }"""
+    """
+        def parse_term(self):
+        '''Term = Factor { MultiplicativeOperator Factor }'''
         left = self.parse_factor()
         while self.match(TokenType.ASTERISK) or self.match(TokenType.SLASH) or \
                 self.match(TokenType.DIV) or self.match(TokenType.MOD) or self.match(TokenType.AND):
@@ -832,6 +835,8 @@ class Parser:
             right = self.parse_factor()
             left = TermNode(factors=[left, op, right])
         return left
+    """
+
 
     def parse_factor(self):
         # (1) число

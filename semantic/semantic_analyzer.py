@@ -1,19 +1,28 @@
 from semantic.symbol_table import SymbolTable
 from parser.ast_node import *
+from generator.codegen import CodeGenerator
 
+GLOBAL_TYPE_CHECKS = {
+    "integer": int,
+    "string": str,
+}
 
 class SemanticAnalyzer:
     def __init__(self):
         self.symbol_table = SymbolTable()
+        self.code_generator = CodeGenerator()
 
     def visit_program(self, node: ProgramNode):
         self.visit_block(node.children[0])
 
     def visit_block(self, node: BlockNode):
-        print(node)
         if node.declarations:
             self.visit_declarations(node.declarations)
-        self.visit_compound_statement(node.compound_statement)
+
+        outer_scope = self.symbol_table
+        self.symbol_table = SymbolTable(parent=outer_scope)
+        self.code_generator = self.visit_compound_statement(node.compound_statement)
+        #self.symbol_table = outer_scope
 
     def visit_declarations(self, node: DeclarationNode):
         for declaration in node:
@@ -25,9 +34,6 @@ class SemanticAnalyzer:
                 self.visit_var_declaration(declaration)
             elif isinstance(declaration, ProcedureOrFunctionDeclarationNode):
                 self.visit_proc_or_func_declaration()
-
-    def visit_compound_statement(self, node: CompoundStatementNode):
-        ...
 
     def visit_proc_or_func_declaration(self):
         ...
@@ -115,6 +121,7 @@ class SemanticAnalyzer:
                 raise ValueError(f'Array size is incorrect. Expected {size} elements, got {total_elements}')
             else:
                 arr_info = {
+                    "type": "array",
                     "element_type": node.element_type,
                     "size": size,
                     "dimensions": node.dimensions,
@@ -125,6 +132,7 @@ class SemanticAnalyzer:
         elif declaration_place in ('var', 'record'):
             # Обработка для массива в записи
             arr_info = {
+                "type": "array",
                 "element_type": node.element_type,
                 "size": size,
                 "dimensions": node.dimensions,
@@ -154,7 +162,7 @@ class SemanticAnalyzer:
         if isinstance(type_node, RecordTypeNode):
             fields = []
             for field_name, field in type_node.fields:
-                print(field)
+                #print(field)
                 if isinstance(field, TypeNode):
                     if field.identifier_type in ("integer", "string") or \
                             self.symbol_table.lookup(field.identifier_type):
@@ -176,7 +184,7 @@ class SemanticAnalyzer:
                     }
                     fields.append(field_info)
 
-            print(fields)
+            #print(fields)
             info = {
                 "name": name,
                 "type": 'record',
@@ -289,7 +297,7 @@ class SemanticAnalyzer:
             return info
 
         record_type = self.symbol_table.lookup(const_type)
-        print('a', record_type)
+        #print('a', record_type)
         if record_type:
             if isinstance(const_value, RecordInitializerNode):
                 # Вызываем отдельную функцию для проверки записи
@@ -364,7 +372,8 @@ class SemanticAnalyzer:
                         )
                     self.validate_record_initializer(record_type_info, init_value)
                     return {
-                        "type": var_type,
+                        "type": "record",
+                        "record_type": var_type,
                         "value": init_value
                     }
                 else:
@@ -480,4 +489,195 @@ class SemanticAnalyzer:
             initializer_fields.append((field_name, default_val))
 
         return RecordInitializerNode(fields=initializer_fields)
+
+    def visit_compound_statement(self, node: CompoundStatementNode):
+        """Обход составного оператора (Compound Statement)"""
+        generated_statements = []
+        for statement_node in node.statements:
+            if isinstance(statement_node, AssignStatementNode):
+                generated_statements.append(self.visit_assign_statement_node(statement_node))
+
+        return {"type": "block", "statements": generated_statements}
+
+    def visit_assign_statement_node(self, node: AssignStatementNode):
+        """Обход оператора присваивания (Assignment)"""
+        if isinstance(node.identifier, str):
+            stmt = self.symbol_table.lookup(node.identifier)
+            if stmt:
+                stmt_type = stmt.get('info', {}).get('type')
+                self.visit_expression_node(node.expression, stmt_type)
+                return self.code_generator.generate(node)
+            else:
+                raise Exception(f"Ошибка: переменная {node.identifier} не объявлена")
+        if isinstance(node.identifier, ArrayAccessNode):
+            array_info = self.symbol_table.lookup(node.identifier.array_name)
+            if not array_info:
+               raise Exception(f"Ошибка: массив '{node.identifier.array_name}' не объявлен")
+
+            if array_info.get('info', {}).get('type') != 'array':
+                raise Exception(f"Ошибка: '{node.identifier.array_name}' не является массивом")
+
+            # Проверяем индексы (не выходят ли за границы)
+            self.visit_array_access_node(node.identifier, None)
+
+            # Проверяем тип элемента массива (присваиваемое значение должно быть того же типа)
+            element_type = array_info["info"].get("element_type")
+            self.visit_expression_node(node.expression, element_type)
+
+            return self.code_generator.generate(node)  # Генерация кода
+
+    def visit_expression_node(self, node: ExpressionNode, stmt_type):
+        """Обход выражений (Expression)"""
+        print("Проверяем выражение:", node.to_dict())
+
+        if node.relational_operator:
+            # Обрабатываем логические и сравнительные выражения
+            left_type = self.get_expression_type(node.left)
+            right_type = self.get_expression_type(node.right)
+
+            if left_type != right_type:
+                raise Exception(f"Ошибка типов: {left_type} != {right_type} в сравнении {node.relational_operator}")
+
+        # Проверяем подвыражения
+        expr = node.left
+        if isinstance(expr, FactorNode):
+            self.visit_factor_node(expr, stmt_type)
+        elif isinstance(expr, SimpleExpressionNode):
+            self.visit_simple_expr_node(expr, stmt_type)
+
+        return self.code_generator.generate(node)
+
+    def visit_simple_expr_node(self, node: SimpleExpressionNode, stmt_type):
+        """Обход простого выражения (например, a + b)"""
+        print("Проверяем простое выражение:", node.to_dict())
+
+        for i, term in enumerate(node.terms):
+            if isinstance(term, FactorNode):
+                self.visit_factor_node(term, stmt_type)
+            elif term in {"+", "-", "or", "*", "div", "mod", "and"}:
+                continue  # Это оператор, его проверять не нужно
+            elif isinstance(term, SimpleExpressionNode):
+                self.visit_simple_expr_node(term, stmt_type)
+            elif isinstance(term, TermNode):
+                self.visit_term_node(term, stmt_type)
+            else:
+                raise Exception(f"Некорректный элемент в terms: {term}")
+
+        return self.code_generator.generate(node)
+
+    def visit_factor_node(self, node: FactorNode, stmt_type):
+        """Обход отдельных факторов (чисел, переменных, подвыражений)"""
+        print("Проверяем фактор:", node.to_dict())
+
+        if node.sub_expression:
+            # Если у нас есть вложенное выражение (например, `(a + b)`), проверяем его
+            if isinstance(node.sub_expression, FactorNode):
+                self.visit_factor_node(node.sub_expression, stmt_type)
+            if isinstance(node.sub_expression, ExpressionNode):
+                self.visit_expression_node(node.sub_expression, stmt_type)
+        elif node.identifier:
+            # Проверяем, есть ли переменная в таблице символов
+            var_info = self.symbol_table.lookup(node.identifier)
+            if not var_info:
+                raise Exception(f"Ошибка: переменная {node.identifier} не объявлена")
+            var_type = var_info.get('info', {}).get('type')
+            if var_type != stmt_type:
+                raise Exception(f"Ошибка типов: {var_type} != {stmt_type} для {node.identifier}")
+        else:
+            # Проверяем, соответствует ли тип значения ожидаемому
+            expected_python_type = self.map_type(stmt_type)
+            if not isinstance(node.value, expected_python_type):
+                raise Exception(f"Ошибка типов: {node.value} ({type(node.value).__name__}) != {stmt_type}")
+        return self.code_generator.generate(node)
+
+    def get_expression_type(self, node):
+        """Определяет тип выражения"""
+        if isinstance(node, FactorNode):
+            return self.get_factor_type(node)
+        elif isinstance(node, SimpleExpressionNode):
+            return self.get_simple_expr_type(node)
+        return None
+
+    def get_factor_type(self, node: FactorNode):
+        """Определяет тип фактора (число, переменная, вложенное выражение)"""
+        if node.identifier:
+            var_info = self.symbol_table.lookup(node.identifier)
+            return var_info.get('info', {}).get('type') if var_info else None
+        elif node.value is not None:
+            return self.get_python_type_name(node.value)
+        return None
+
+    def get_simple_expr_type(self, node: SimpleExpressionNode):
+        """Определяет тип простого выражения (например, a + b)"""
+        first_term = node.terms[0]
+        return self.get_factor_type(first_term) if isinstance(first_term, FactorNode) else None
+
+    def visit_array_access_node(self, node: ArrayAccessNode, stmt):
+        """Обход обращения к массиву (arr[i] или arr[i][j])"""
+        print(f"📌 Проверяем доступ к массиву: {node}")
+
+        # 1️⃣ Проверяем, объявлен ли массив (ищем по `ArrayAccessNode`)
+        array_info = self.symbol_table.lookup(node.array_name)  # Теперь передаём весь узел
+
+        if not array_info:
+            raise Exception(f"Ошибка: массив '{node.array_name}' не объявлен")
+
+        if array_info.get('info', {}).get('type') != 'array':
+            raise Exception(f"Ошибка: '{node.array_name}' не является массивом")
+
+        dimensions = array_info['info'].get('dimensions', [])
+        num_dimensions = len(dimensions)
+
+        # 2️⃣ Проверяем количество индексов
+        indices = node.index_expr if isinstance(node.index_expr, list) else [node.index_expr]
+
+        if len(indices) != num_dimensions:
+            raise Exception(
+                f"Ошибка: массив '{node.array_name}' имеет {num_dimensions} измерения, но передано {len(indices)} индексов")
+
+        # 3️⃣ Проверяем каждый индекс (вычисляем его и проверяем границы)
+        for i, (index_expr, (lower_bound, upper_bound)) in enumerate(zip(indices, dimensions)):
+            index_value = self.evaluate_expression(index_expr)
+
+            print(f"Индекс {i + 1}: {index_value} (допустимый диапазон: [{lower_bound}, {upper_bound}])")
+
+            if not (lower_bound <= index_value <= upper_bound):
+                raise Exception(
+                    f"Ошибка: индекс {index_value} выходит за границы [{lower_bound}, {upper_bound}] для измерения {i + 1}")
+
+        print(f"Доступ к массиву {node.array_name} с индексами {indices} - ОК!")
+
+    def evaluate_expression(self, expr):
+        """Попытка вычислить выражение индекса (если оно константное)"""
+        if isinstance(expr, FactorNode) and isinstance(expr.value, int):
+            return expr.value  # Простое число — возвращаем его
+        elif isinstance(expr, ExpressionNode):
+            # Пробуем вычислить выражение (если возможно)
+
+            expression_result = self.visit_expression_node(expr, "integer")
+            return expression_result["value"]
+
+            if expression_result and expression_result["type"] == "constant":
+                return expression_result["value"]
+        else:
+            raise Exception(f"Ошибка: не удалось вычислить индексное выражение: {expr}")
+
+    def get_python_type_name(self, value):
+        """Конвертирует Python-тип в строковое представление"""
+        if isinstance(value, int):
+            return "integer"
+        if isinstance(value, str):
+            return "string"
+        if isinstance(value, float):
+            return "real"
+        return "unknown"
+
+    def map_type(self, stmt_type):
+        """Сопоставляет строковое представление типа с Python-типом"""
+        mapping = {
+            "integer": int,
+            "string": str
+        }
+        return mapping.get(stmt_type, object)
+
 
