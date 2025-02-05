@@ -837,7 +837,6 @@ class Parser:
         return left
     """
 
-
     def parse_factor(self):
         # (1) число
         if self.match(TokenType.NUMBER):
@@ -864,30 +863,35 @@ class Parser:
                 self.consume(TokenType.DOT)
                 field_ident = self.consume(TokenType.IDENTIFIER)
                 node = RecordFieldAccessNode(record_obj=ident, field_name=field_ident)
-
                 return node
 
-            # Теперь проверяем, не идёт ли вызов (   fun2( ... )
+            # Проверяем вызов функции
             if self.match(TokenType.LPAREN):
-                # Это значит, что мы имеем вызов функции, а не просто идентификатор
                 func_call_node = self.parse_function_call(ident)
                 return func_call_node
 
             # Иначе это просто FactorNode с identifier=ident
-            if isinstance(ident, str):  # Если так и осталось строкой
+            if isinstance(ident, str):
                 return FactorNode(identifier=ident)
             else:
-                # Если ident превратился в ArrayAccessNode
                 return ident
 
-        # (4) скобки ( ... )
+        # (4) булевые литералы
+        elif self.match(TokenType.TRUE):
+            self.consume(TokenType.TRUE)
+            return FactorNode(value=True)
+        elif self.match(TokenType.FALSE):
+            self.consume(TokenType.FALSE)
+            return FactorNode(value=False)
+
+        # (5) скобки ( ... )
         elif self.match(TokenType.LPAREN):
             self.consume(TokenType.LPAREN)
             inner_expr = self.parse_expression()
             self.consume(TokenType.RPAREN)
             return FactorNode(sub_expression=inner_expr)
 
-        # (5) NOT factor
+        # (6) NOT factor
         elif self.match(TokenType.NOT):
             self.consume(TokenType.NOT)
             factor = self.parse_factor()

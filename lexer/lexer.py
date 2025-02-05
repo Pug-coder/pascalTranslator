@@ -43,10 +43,19 @@ class Lexer:
             self.next_char()
 
         value = self.text[start_pos:self.current_pos]
+
+        # Добавляем обработку булевых литералов
+        if value.lower() == 'true':
+            return Token(TokenType.TRUE, value, self.line, start_column)
+        elif value.lower() == 'false':
+            return Token(TokenType.FALSE, value, self.line, start_column)
+
+        # Обработка других ключевых слов или идентификаторов
         if value.lower() in ['number', 'string']:
             type_ = TokenType.IDENTIFIER
         else:
             type_ = TokenType[value.upper()] if value.upper() in TokenType.__members__ else TokenType.IDENTIFIER
+
         return Token(type_, value, self.line, start_column)
 
     def read_string(self):

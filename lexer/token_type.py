@@ -20,6 +20,9 @@ class TokenType(Enum):
     FUNCTION = auto()
     PROCEDURE = auto()
 
+    TRUE = auto()
+    FALSE = auto()
+
     OR = auto()
     AND = auto()
     NOT = auto()
