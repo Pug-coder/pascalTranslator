@@ -61,7 +61,17 @@ class CodeGenerator:
         }
 
     def generate_expression(self, node: ExpressionNode):
-        """Генерирует выражение (арифметическое или логическое). Предполагается, что основное выражение находится в 'left'."""
+        # Если узел содержит реляционный оператор, генерируем код для обоих операндов
+        if getattr(node, "relational_operator", None):
+            left_code = self.generate(node.left)
+            right_code = self.generate(node.right)
+            return {
+                "type": "BinaryExpression",
+                "operator": node.relational_operator,
+                "left": left_code,
+                "right": right_code
+            }
+        # Иначе (если оператора нет) — обрабатываем только левую часть
         return self.generate(node.left)
 
     def generate_simple_expression(self, node: SimpleExpressionNode):

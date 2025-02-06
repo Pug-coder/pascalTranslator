@@ -382,15 +382,16 @@ class SemanticAnalyzer:
                     return {
                         "type": "record",
                         "record_type": var_type,
-                        "value": init_value
+                        "fields": [field for field in init_value.fields]
                     }
                 else:
                     # Создаём пустой RecordInitializerNode по умолчанию
                     default_record = self.create_default_record_initializer(record_type_info)
+
                     return {
                         "type": "record",
                         "record_type": var_type,
-                        "value": default_record
+                        "fields": default_record
                     }
 
             # 4) Иначе тип неизвестен
@@ -495,10 +496,9 @@ class SemanticAnalyzer:
             else:
                 # Используем универсальную create_default_value
                 default_val = self.create_default_value(field_type)
-
             initializer_fields.append((field_name, default_val))
-
-        return RecordInitializerNode(fields=initializer_fields)
+        fields = {init_name: init_value for init_name, init_value in RecordInitializerNode(fields=initializer_fields).fields}
+        return fields
 
     def visit_compound_statement(self, node: CompoundStatementNode):
         """Обход составного оператора (Compound Statement)"""

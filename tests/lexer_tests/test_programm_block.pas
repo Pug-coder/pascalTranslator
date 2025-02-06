@@ -43,6 +43,10 @@ type
   subarray = array [1..4] of integer;
   m = array [1..3] of subarray;
 
+const
+    y: integer= 2;
+    s: string = "12345awsd";
+    p: TPerson = (name: "John"; age: 30);
 var
     a, b: string;
 	arr1: array [1..3,1..2] of string;
