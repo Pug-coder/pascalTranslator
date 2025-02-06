@@ -27,6 +27,13 @@ class CodeGenerator:
             return self.generate_record_field_access(node)
         elif isinstance(node, IfStatementNode):
             return self.generate_if_statement(node)
+        # Новые узлы для функций и процедур:
+        elif isinstance(node, ProcedureOrFunctionDeclarationNode):
+            return self.generate_proc_or_func_decl(node)
+        elif isinstance(node, ProcedureCallNode):
+            return self.generate_proc_call(node)
+        elif isinstance(node, FunctionCallNode):
+            return self.generate_func_call(node)
         return None
 
     def generate_compound_statement(self, node: CompoundStatementNode):
@@ -39,8 +46,8 @@ class CodeGenerator:
     def generate_assign_statement(self, node: AssignStatementNode):
         """Генерирует присваивание.
 
-        Если target (идентификатор) не является строкой (то есть, это, например, обращение к массиву
-        или к полю записи), то генерируется специальная структура.
+        Если target (идентификатор) не является строкой (например, обращение к массиву
+        или к полю записи), генерируется специальная структура.
         """
         if isinstance(node.identifier, (ArrayAccessNode, RecordFieldAccessNode)):
             target = self.generate(node.identifier)
@@ -174,4 +181,70 @@ class CodeGenerator:
             "condition": condition_code,
             "then": then_code,
             "else": else_code
+        }
+
+    # ===== Новые методы для функций и процедур =====
+
+    def generate_proc_or_func_decl(self, node: ProcedureOrFunctionDeclarationNode):
+        """
+        Генерирует код для объявления процедуры или функции.
+
+        Для процедуры генерируется структура:
+        {
+            "type": "ProcedureDeclaration",
+            "name": <имя процедуры>,
+            "parameters": [<список параметров>],
+            "block": <код тела процедуры>
+        }
+
+        Для функции – аналогично, но дополнительно добавляется "return_type":
+        {
+            "type": "FunctionDeclaration",
+            "name": <имя функции>,
+            "parameters": [<список параметров>],
+            "block": <код тела функции>,
+            "return_type": <тип возвращаемого значения>
+        }
+        """
+        node_type = "ProcedureDeclaration" if node.kind.lower() == "procedure" else "FunctionDeclaration"
+        return {
+            "type": node_type,
+            "name": node.identifier,
+            "parameters": [str(param) for param in node.parameters] if node.parameters else [],
+            "block": self.generate(node.block) if node.block else None,
+            "return_type": node.return_type if node.kind.lower() == "function" else None
+        }
+
+    def generate_proc_call(self, node: ProcedureCallNode):
+        """
+        Генерирует вызов процедуры.
+
+        Результирующая структура:
+        {
+            "type": "ProcedureCall",
+            "name": <имя процедуры>,
+            "arguments": [<аргументы вызова>]
+        }
+        """
+        return {
+            "type": "ProcedureCall",
+            "name": node.identifier,
+            "arguments": [self.generate(arg) for arg in node.arguments] if node.arguments else []
+        }
+
+    def generate_func_call(self, node: FunctionCallNode):
+        """
+        Генерирует вызов функции.
+
+        Результирующая структура:
+        {
+            "type": "FunctionCall",
+            "name": <имя функции>,
+            "arguments": [<аргументы вызова>]
+        }
+        """
+        return {
+            "type": "FunctionCall",
+            "name": node.identifier,
+            "arguments": [self.generate(arg) for arg in node.arguments] if node.arguments else []
         }

@@ -26,6 +26,8 @@ class SemanticAnalyzer:
         outer_scope = self.symbol_table
         self.symbol_table = SymbolTable(parent=outer_scope)
         self.code_generator = self.visit_compound_statement(node.compound_statement)
+        block = self.code_generator
+        return block
         #self.symbol_table = outer_scope
 
     def visit_declarations(self, node: DeclarationNode):
@@ -37,10 +39,7 @@ class SemanticAnalyzer:
             elif isinstance(declaration, VarDeclarationNode):
                 self.visit_var_declaration(declaration)
             elif isinstance(declaration, ProcedureOrFunctionDeclarationNode):
-                self.visit_proc_or_func_declaration()
-
-    def visit_proc_or_func_declaration(self):
-        ...
+                self.visit_proc_or_func_declaration(declaration)
 
     def create_array_info(self, node: ArrayTypeNode, declaration_place):
         """
@@ -513,6 +512,9 @@ class SemanticAnalyzer:
                 generated_statements.append(self.visit_while_statement_node(statement_node))
             elif isinstance(statement_node, IfStatementNode):
                 generated_statements.append(self.visit_if_statement_node(statement_node))
+            elif isinstance(statement_node, ProcedureCallNode):
+                generated_statements.append(self.visit_procedure_call_node(statement_node))
+
         return {"type": "block", "statements": generated_statements}
 
     def visit_expression_node(self, node, stmt_type=None):
@@ -557,6 +559,8 @@ class SemanticAnalyzer:
 
         elif isinstance(node, ArrayAccessNode):
             return self.visit_array_access_node(node, stmt_type)
+        elif isinstance(node, FunctionCallNode):
+            return self.visit_function_call_node(node)
         else:
             raise Exception(f"Unsupported node type in visit_expression_node: {type(node)}")
 
@@ -599,6 +603,7 @@ class SemanticAnalyzer:
             # Only check if an expected type was given
             if stmt_type is not None and var_type != stmt_type:
                 raise Exception(f"Ошибка типов: {var_type} != {stmt_type} для {node.identifier}")
+            print(self.code_generator)
             return self.code_generator.generate(node)
 
         elif node.value is not None:
@@ -622,39 +627,45 @@ class SemanticAnalyzer:
 
             return self.code_generator.generate(node)
 
-    def get_expression_type(self, node):
-        """Определяет тип выражения."""
+    def get_expression_type(self, node, detailed=False):
+        """Определяет тип выражения. Если detailed=True, возвращает подробную информацию."""
+        if isinstance(node, FunctionCallNode):
+            func_info = self.symbol_table.lookup(node.identifier)
+            if not func_info:
+                raise Exception(f"Ошибка: функция '{node.identifier}' не объявлена")
+            return func_info.get('return_type')
         if isinstance(node, ExpressionNode):
-            # Если в выражении присутствует логический или сравнительный оператор,
-            # считаем, что результат — булевский тип.
             if node.relational_operator:
-                # Optionally, check subexpressions for consistency:
-                left_type = self.get_expression_type(node.left)
-                right_type = self.get_expression_type(node.right)
+                left_type = self.get_expression_type(node.left, detailed)
+                right_type = self.get_expression_type(node.right, detailed)
                 if left_type != right_type:
-                    raise Exception(f"Ошибка типов: {left_type} != {right_type} в сравнении {node.relational_operator}")
+                    raise Exception(
+                        f"Ошибка типов: {left_type} != {right_type} в сравнении {node.relational_operator}"
+                    )
                 return "boolean"
             else:
-                # Если нет оператора сравнения, определим тип по левому подвыражению.
                 if isinstance(node.left, FactorNode):
-                    return self.get_factor_type(node.left)
+                    return self.get_factor_type(node.left, detailed)
                 elif isinstance(node.left, SimpleExpressionNode):
                     return self.get_simple_expr_type(node.left)
                 else:
-                    # Если структура выражения более сложная, можно добавить дополнительную логику.
                     return None
         elif isinstance(node, FactorNode):
-            return self.get_factor_type(node)
+            return self.get_factor_type(node, detailed)
         elif isinstance(node, SimpleExpressionNode):
-            return self.get_simple_expr_type(node)
-
+            return self.get_simple_expr_type(node, detailed)
+        elif isinstance(node, ArrayAccessNode):
+            return self.get_array_access_type(node)
         return None
 
-    def get_factor_type(self, node: FactorNode):
+    def get_factor_type(self, node: FactorNode, detailed=False):
         """Определяет тип фактора (число, переменная, вложенное выражение)"""
         if node.identifier:
             var_info = self.symbol_table.lookup(node.identifier)
-            return var_info.get('info', {}).get('type') if var_info else None
+            if not detailed:
+                return var_info.get('info', {}).get('type') if var_info else None
+            else:
+                return var_info.get('info', {})
         elif node.value is not None:
             return self.get_python_type_name(node.value)
         return None
@@ -663,6 +674,23 @@ class SemanticAnalyzer:
         """Определяет тип простого выражения (например, a + b)"""
         first_term = node.terms[0]
         return self.get_factor_type(first_term) if isinstance(first_term, FactorNode) else None
+
+    def get_array_access_type(self, node):
+        """
+        Определяет тип выражения для обращения к массиву.
+        Например, для узла, представляющего niz[i], возвращает тип элементов массива 'niz'
+        """
+        base_array_name, indices = self.flatten_array_access(node)
+        array_info = self.symbol_table.lookup(base_array_name)
+        if not array_info:
+            raise Exception(f"Ошибка: массив '{base_array_name}' не объявлен")
+        if array_info.get('info', {}).get('type') != 'array':
+            raise Exception(f"Ошибка: '{base_array_name}' не является массивом")
+
+        # Можно также добавить проверку количества индексов и границ,
+        # но для определения типа достаточно вернуть тип элемента
+        element_type = array_info['info'].get('element_type')
+        return element_type
 
     def flatten_array_access(self, node: ArrayAccessNode):
         """
@@ -1023,6 +1051,157 @@ class SemanticAnalyzer:
 
         # Генерируем и возвращаем код для оператора IF
         return self.code_generator.generate(node)
+
+    def visit_procedure_call_node(self, node: ProcedureCallNode):
+        """
+        Обрабатывает вызов процедуры.
+        Проверяет, что процедура объявлена, и что число/типы аргументов соответствуют параметрам.
+        """
+        proc_info = self.symbol_table.lookup(node.identifier)
+        if not proc_info:
+            raise Exception(f"Ошибка: процедура '{node.identifier}' не объявлена")
+        if proc_info.get('kind') != 'procedure':
+            raise Exception(f"Ошибка: '{node.identifier}' не является процедурой")
+
+        expected_params = proc_info.get('parameters', [])
+        if len(expected_params) != len(node.arguments):
+            raise Exception(
+                f"Ошибка: процедура '{node.identifier}' ожидает {len(expected_params)} аргументов, получено {len(node.arguments)}")
+
+        for param, arg in zip(expected_params, node.arguments):
+            expected_type = param['type']
+            print('arg',arg)
+            print(param)
+            print(expected_type)
+
+            if isinstance(expected_type, ArrayTypeNode):
+                arg_type = self.get_expression_type(arg, True)
+                dim = expected_type.dimensions
+                elem_type = expected_type.element_type
+                if dim != arg_type['dimensions']:
+                    raise Exception (
+                        f'Ошибка размерностей {dim} != {arg_type["dimensions"]}'
+                    )
+                if elem_type != arg_type['element_type']:
+                    raise Exception(
+                        f'Ошибка типов {elem_type} != { arg_type["element_type"]}'
+                    )
+                return self.code_generator.generate(node)
+            arg_type = self.get_expression_type(arg)
+            if arg_type != expected_type:
+                raise Exception(
+                    f"Ошибка типов в вызове процедуры '{node.identifier}': для параметра '{param['name']}' ожидается {expected_type}, получено {arg_type}")
+        return self.code_generator.generate(node)
+
+    # Обработка вызова функции
+    def visit_function_call_node(self, node: FunctionCallNode):
+        """
+        Обрабатывает вызов функции.
+        Проверяет, что функция объявлена, число и типы аргументов соответствуют параметрам,
+        и возвращает тип результата, равный возвращаемому типу функции.
+        """
+        func_info = self.symbol_table.lookup(node.identifier)
+        if not func_info:
+            raise Exception(f"Ошибка: функция '{node.identifier}' не объявлена")
+        if func_info.get('kind') != 'function':
+            raise Exception(f"Ошибка: '{node.identifier}' не является функцией")
+
+        expected_params = func_info.get('parameters', [])
+        if len(expected_params) != len(node.arguments):
+            raise Exception(
+                f"Ошибка: функция '{node.identifier}' ожидает {len(expected_params)} аргументов, получено {len(node.arguments)}")
+
+        for param, arg in zip(expected_params, node.arguments):
+            print(param)
+            expected_type = param['type']
+            arg_type = self.get_expression_type(arg)
+            if str(arg_type).lower().strip() != str(expected_type).lower().strip():
+                raise Exception(
+                    f"Ошибка типов в вызове функции '{node.identifier}': для параметра '{param['name']}' ожидается {expected_type}, получено {arg_type}")
+        # Генерация кода для вызова функции. Можно также вернуть ожидаемый тип.
+        generated_code = self.code_generator.generate(node)
+        return generated_code
+
+    def visit_parameters(self, parameters):
+        """
+        Обходит список параметров процедуры/функции.
+
+        Для каждого параметра:
+          - Если параметр задан через составной узел (например, массив или запись),
+            вызывается look_var_type для разрешения типа.
+          - Поскольку для параметров не задаётся явное значение (init_value),
+            передаём None в качестве инициализирующего значения.
+          - Регистрируем параметр в локальной таблице символов с разрешённой информацией о типе.
+        """
+        for param in parameters:
+            # Здесь param.type_node может быть объектом типа TypeNode, ArrayTypeNode, или даже строкой
+            resolved_type = self.look_var_type(param.type_node, None)
+            # Регистрируем параметр в текущей таблице символов.
+            self.symbol_table.declare(param.identifier, {"kind": "parameter", "type": resolved_type})
+
+
+    def visit_proc_or_func_declaration(self, node: ProcedureOrFunctionDeclarationNode):
+        """
+        Обрабатывает объявление процедуры или функции:
+          1. Регистрирует объявление в глобальной таблице символов.
+          2. Создает отдельные экземпляры SymbolTable и CodeGenerator для обработки тела.
+          3. Обрабатывает блок (тело) процедуры/функции с использованием локальных объектов.
+          4. Сохраняет полученные результаты в записи объявления.
+        """
+        # Проверяем, что такое имя ещё не объявлено
+        if self.symbol_table.lookup(node.identifier):
+            raise Exception(f"Ошибка: {node.kind} '{node.identifier}' уже объявлена")
+
+        # Создаем запись для объявления с базовой информацией
+        proc_info = {
+            "kind": node.kind,  # "procedure" или "function"
+            "parameters": [],  # Заполним ниже
+            "return_type": node.return_type,  # Для функции; для процедуры может быть None
+            "block_code": None,  # Сюда позже запишем сгенерированный код
+            "local_symbol_table": None  # При необходимости сохраним локальную таблицу
+        }
+
+        # Обработка параметров (предполагается, что у каждого параметра есть identifier и param_type)
+        if node.parameters:
+            for param in node.parameters:
+                proc_info["parameters"].append({
+                    "name": param.identifier,
+                    "type": param.type_node
+                })
+
+        # Регистрируем объявление в глобальной таблице символов
+        self.symbol_table.declare(node.identifier, proc_info)
+
+        # Сохраняем текущие объекты (глобальные)
+        old_symbol_table = self.symbol_table
+        old_code_generator = self.code_generator
+
+        # Создаем новые (локальные) объекты для обработки тела функции/процедуры
+        local_symbol_table = SymbolTable(parent=old_symbol_table)
+        local_code_generator = CodeGenerator()
+
+        # Добавляем параметры в локальную таблицу
+        if node.parameters:
+            for param in node.parameters:
+                local_symbol_table.declare(param.identifier, {"kind": "parameter", "type": param.type_node})
+
+        # Переключаемся на локальные объекты
+        self.symbol_table = local_symbol_table
+        self.code_generator = local_code_generator
+
+        # Обрабатываем блок (тело) функции/процедуры и получаем сгенерированный код
+        block_code = self.visit_block(node.block)
+
+        # Сохраняем сгенерированный код и локальную таблицу в записи объявления
+        print('co0de',block_code)
+        proc_info["block_code"] = block_code
+        proc_info["local_symbol_table"] = local_symbol_table
+
+        # Возвращаемся к исходным (глобальным) объектам
+        self.symbol_table = old_symbol_table
+        self.code_generator = old_code_generator
+
+        return proc_info
 
     def get_python_type_name(self, value):
         """Конвертирует Python-тип в строковое представление"""

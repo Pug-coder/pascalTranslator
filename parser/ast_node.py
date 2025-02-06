@@ -192,7 +192,7 @@ class ForStatementNode(StatementNode):
         return f"FOR {self.identifier} := {self.start_expr} {self.direction} {self.end_expr} DO {self.body}"
 
 
-class ProcedureCallNode(StatementNode):
+class ProcedureCallNode(AstNode):
     def __init__(self, identifier, arguments=None):
         super().__init__()
         self.identifier = identifier  # Имя процедуры или функции
@@ -206,12 +206,12 @@ class ProcedureCallNode(StatementNode):
 class FunctionCallNode(AstNode):
     def __init__(self, func_name, arguments=None):
         super().__init__()
-        self.func_name = func_name        # строка, имя функции
+        self.identifier = func_name        # строка, имя функции
         self.arguments = arguments or []
 
     def __repr__(self):
         args = ", ".join(map(str, self.arguments))
-        return f"{self.func_name}({args})"
+        return f"{self.identifier}({args})"
 
 
 class ExpressionNode(AstNode):
