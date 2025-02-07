@@ -14,15 +14,6 @@ procedure DoSomething;
 var x: integer;
 begin
     x := 5;
-
-end;
-
-procedure PrintArray(var a: array [1..3] of integer);
-
-var
-    i: integer;
-begin
-
 end;
 
 function Sum(var a, b: integer): integer;
@@ -31,21 +22,9 @@ begin
     Sum := a + b;
 end;
 
-
-function MaxValue(const data: array [1..3] of integer): integer;
-var
-    i: integer;
-    m: integer;
-begin
-    MaxValue := m;
-end;
-type
-  subarray = array [1..4] of integer;
-  m = array [1..3] of subarray;
-
 const
     y: integer= 2;
-    s: string = "12345awsd";
+    s: string = "awsd";
     p: TPerson = (name: "John"; age: 30);
 var
     a, b: string;
@@ -57,14 +36,14 @@ var
     i, n, j, number, temp: integer;
     isEven, isDivisibleByThree: boolean;
 begin
-
+    number := 3;
     isEven := False;
     arr1[1][2] := "2";
     person1.p.name := "John";
     person.age := 25;
-    a := Sum(1,2);
+    number := Sum(1,2);
+    arr3[1] := 2 + 1;
     DoSomething;
-    PrintArray(arr2);
 	for i := 1 to n do
 	begin
 		for j := i + 1 to n do
@@ -84,8 +63,8 @@ begin
 
   while number <> 0 do
   begin
-
-
+    arr2[2] := arr2[2] + 1;
+       number := number - 1;
   end;
 
 

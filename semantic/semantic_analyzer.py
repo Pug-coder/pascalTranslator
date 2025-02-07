@@ -577,7 +577,10 @@ class SemanticAnalyzer:
                 self.visit_simple_expr_node(term, stmt_type)
             elif isinstance(term, TermNode):
                 self.visit_term_node(term, stmt_type)
+            elif isinstance(term, ArrayAccessNode):
+                self.visit_array_access_node(term, stmt_type)
             else:
+                print(type(term))
                 raise Exception(f"Некорректный элемент в terms: {term}")
 
         return self.code_generator.generate(node)
@@ -1120,7 +1123,7 @@ class SemanticAnalyzer:
                     f"Ошибка типов в вызове функции '{node.identifier}': для параметра '{param['name']}' ожидается {expected_type}, получено {arg_type}")
         # Генерация кода для вызова функции. Можно также вернуть ожидаемый тип.
         generated_code = self.code_generator.generate(node)
-        return generated_code
+        return self.code_generator.generate(node)
 
     def visit_parameters(self, parameters):
         """
@@ -1138,7 +1141,6 @@ class SemanticAnalyzer:
             resolved_type = self.look_var_type(param.type_node, None)
             # Регистрируем параметр в текущей таблице символов.
             self.symbol_table.declare(param.identifier, {"kind": "parameter", "type": resolved_type})
-
 
     def visit_proc_or_func_declaration(self, node: ProcedureOrFunctionDeclarationNode):
         """
@@ -1193,7 +1195,7 @@ class SemanticAnalyzer:
         block_code = self.visit_block(node.block)
 
         # Сохраняем сгенерированный код и локальную таблицу в записи объявления
-        print('co0de',block_code)
+
         proc_info["block_code"] = block_code
         proc_info["local_symbol_table"] = local_symbol_table
 

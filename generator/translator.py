@@ -65,11 +65,20 @@ class Translator:
         Для этого предварительно оборачивает нестроковые идентификаторы (например, integer)
         в кавычки.
         """
-        # Пример регулярного выражения, которое ищет случаи вида: : integer, : boolean и т.д.
-        # и заменяет их на : "integer", : "boolean" и т.п.
+        # Оборачиваем нестроковые идентификаторы в кавычки
         info_str = re.sub(r":\s*([a-zA-Z_]\w*)(\s*[,}])", r': "\1"\2', info_str)
-        # Заменяем подстроки вида <...> на None
-        cleaned = re.sub(r"<(?!>)[^>]+>", "None", info_str)
+
+        # Функция-заменитель для подстрок вида <...>
+        def symbol_table_replacer(match):
+            text = match.group(0)
+            if "SymbolTable" in text:
+                # Если обнаружена таблица символов, возвращаем её как строку
+                return f'"{text}"'
+            else:
+                return "None"
+
+        # Заменяем подстроки вида <...> с помощью функции-заменителя
+        cleaned = re.sub(r"<(?!>)[^>]+>", symbol_table_replacer, info_str)
         try:
             return ast.literal_eval(cleaned)
         except Exception as e:
@@ -186,24 +195,60 @@ class Translator:
     def translate_function(self, name, info):
         """
         Перевод функции/процедуры.
-        Пример результата:
           (function Sum (a b)
-             ...тело...
-             (return Sum)
+            (
+              (c "=" 0)
+              (d "=" 0)
+            )
+            (return Sum)
           )
         """
+        # Извлекаем список параметров
         params = info.get("parameters", [])
         params_list = " ".join(param["name"] for param in params)
+
+        # Получаем локальную таблицу символов и отфильтровываем параметры
+        local_sym_table = info.get("local_symbol_table", {})
+        non_parameters = {
+            key: value
+            for key, value in local_sym_table.items()
+            if value.get("kind") != "parameter"
+        }
+
+        # Формируем заголовок функции
         header = f"(function {name} ({params_list})"
+
+        # Формируем блок для локальных переменных
+        local_vars_lines = []
+        if non_parameters:
+            local_vars_lines.append("  (")
+            for var_name, var_info in non_parameters.items():
+                # Предположим, что если для переменной задано значение, оно находится в info.value
+                # (в исходном примере для 'c' и 'd' значение равно 0)
+                var_value = var_info.get("info", {}).get("value", "")
+                vtype = var_info.get("type")
+                local_vars_lines.append(f"    ({vtype} {var_name} \"=\" {var_value})")
+            local_vars_lines.append("  )")
+        else:
+            local_vars_lines.append("// нет локальных переменных")
+
+        # Переводим тело функции (если задан блок)
         body_lines = []
         block = info.get("block_code", {})
         if block.get("type") in ("block", "Block"):
             body_lines.extend(self.translate_block(block, indent="  ").split("\n"))
+
+        # Для функций добавляем оператор возврата результата
         if info.get("kind") == "function":
-            # Добавляем возврат результата (если требуется)
             body_lines.append(f"  (return {name})")
-        body = "\n".join(body_lines)
-        return f"{header}\n{body}\n)"
+
+        # Собираем все части вместе:
+        # - Заголовок функции
+        # - Блок с локальными переменными (не параметры)
+        # - Тело функции
+        # - Закрывающую скобку
+        all_lines = [header] + local_vars_lines + body_lines + [")"]
+        return "\n".join(all_lines)
 
     # --------------- Перевод операторов и выражений ---------------
 

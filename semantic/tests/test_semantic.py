@@ -16,6 +16,7 @@ parser_log_file = 'parser_log.json'
 semantic_log_file = 'semantic_log.json'
 generated_code_file = 'generated_code.txt'  # Файл для сгенерированного кода
 
+
 with open(parser_log_file, 'w', encoding='utf-8') as parser_log, \
      open(semantic_log_file, 'w', encoding='utf-8') as semantic_log:
     # Лексический анализ
@@ -38,6 +39,14 @@ with open(parser_log_file, 'w', encoding='utf-8') as parser_log, \
     # Семантический анализ
     sem = SemanticAnalyzer()
     sem.visit_program(ast)
+
+    for symbol, details in sem.symbol_table.parent.symbols.items():
+        if details.get('local_symbol_table'):
+            print('details',details.get('local_symbol_table').symbols)
+            details['local_symbol_table'] = {
+                sym: det
+                for sym, det in details.get('local_symbol_table').symbols.items()
+        }
 
     # Формируем структуру JSON для таблицы символов
     semantic_json = {

@@ -223,6 +223,7 @@ class CodeGenerator:
             "parameters": [str(param) for param in node.parameters] if node.parameters else [],
             "block": self.generate(node.block) if node.block else None,
             "return_type": node.return_type if node.kind.lower() == "function" else None
+
         }
 
     def generate_proc_call(self, node: ProcedureCallNode):
