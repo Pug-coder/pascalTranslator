@@ -46,7 +46,6 @@ class SemanticAnalyzer:
         Эта функция проверяет, что размеры массива и его вложенности соответствуют
         указанным в декларации. Также проверяет соответствие типов данных в массиве.
         """
-
         type_checks = {
             "integer": int,
             "string": str,
@@ -55,22 +54,23 @@ class SemanticAnalyzer:
 
         def check_array_size_and_types(dimensions, values, level=0):
             if level == len(dimensions):
-
-                if isinstance(values, RecordInitializerNode):
+                # Обработка для базового уровня (одиночный элемент или список элементов)
+                # Если элемент — инициализатор записи, который может быть задан как RecordInitializerNode или dict
+                if isinstance(values, (RecordInitializerNode, dict)):
                     record_type = self.symbol_table.lookup(node.element_type)
                     if not record_type:
-                        raise Exception(f"Record type '{node.record_type_name}' not found in symbol table")
+                        raise Exception(f"Record type '{node.element_type}' not found in symbol table")
                     self.validate_record_initializer(record_type, values)
                     return 1
-
-                elif isinstance(values, list) and all(isinstance(v, RecordInitializerNode) for v in values):
-                    record_type = self.symbol_table.lookup(node.record_type_name)
+                # Если список содержит только инициализаторы записей (RecordInitializerNode или dict)
+                elif isinstance(values, list) and all(isinstance(v, (RecordInitializerNode, dict)) for v in values):
+                    record_type = self.symbol_table.lookup(node.element_type)
                     if not record_type:
-                        raise Exception(f"Record type '{node.record_type_name}' not found in symbol table")
+                        raise Exception(f"Record type '{node.element_type}' not found in symbol table")
                     for record_instance in values:
                         self.validate_record_initializer(record_type, record_instance)
                     return len(values)
-
+                # Если элемент относится к базовому типу (integer, string, boolean)
                 expected_type = type_checks.get(node.element_type)
                 if expected_type:
                     if isinstance(values, list):
@@ -83,25 +83,16 @@ class SemanticAnalyzer:
                         else:
                             raise ValueError(
                                 f"Expected element of type {expected_type} at level {level}, but got {type(values)}")
+                # Если ни базовый тип, ни запись найдены – ошибка
+                raise Exception(f"Invalid initializer for type '{node.element_type}'")
 
-                elif expected_type is None:
-                    record_type = self.symbol_table.lookup(node.element_type)
-                    #print('a', record_type)
-                    if record_type:
-                        if isinstance(values, RecordInitializerNode):
-                            # Вызываем отдельную функцию для проверки записи
-                            return self.validate_record_initializer(record_type, values)
-                        else:
-                            raise Exception(f"Invalid initializer for record type '{record_type}'")
-
-
+            # Рекурсивно обрабатываем вложенные списки
             dim_lower, dim_upper = dimensions[level]
             expected_size = dim_upper - dim_lower + 1
 
             if isinstance(values, list):
                 if len(values) != expected_size:
                     raise ValueError(f"At level {level}, expected {expected_size} elements, got {len(values)}")
-
                 total_size = 0
                 for sub_values in values:
                     total_size += check_array_size_and_types(dimensions, sub_values, level + 1)
@@ -109,7 +100,7 @@ class SemanticAnalyzer:
             else:
                 raise ValueError(f"Expected list of values at level {level}, but got {type(values)}")
 
-        # Получаем размеры из dimensions
+        # Вычисляем общий размер массива по измерениям
         size = 1
         for dim in node.dimensions:
             lower_bound, upper_bound = dim
@@ -120,7 +111,6 @@ class SemanticAnalyzer:
                 raise ValueError(f'{declaration_place} declaration array cannot be empty, enter values')
 
             total_elements = check_array_size_and_types(node.dimensions, node.initial_values)
-
             if total_elements != size:
                 raise ValueError(f'Array size is incorrect. Expected {size} elements, got {total_elements}')
             else:
@@ -131,10 +121,15 @@ class SemanticAnalyzer:
                     "dimensions": node.dimensions,
                     "initial_values": node.initial_values
                 }
+                # Если element_type соответствует записи, преобразуем инициализаторы в словари
+                record_type_info = self.symbol_table.lookup(node.element_type)
+                if record_type_info and record_type_info.get("type") == "record":
+                    arr_info["initial_values"] = self.transform_record_array_values(
+                        node.initial_values, node.dimensions, record_type_info
+                    )
                 return arr_info
 
         elif declaration_place in ('var', 'record'):
-            # Обработка для массива в записи
             arr_info = {
                 "type": "array",
                 "element_type": node.element_type,
@@ -142,22 +137,39 @@ class SemanticAnalyzer:
                 "dimensions": node.dimensions,
                 "initial_values": node.initial_values
             }
-
-            if node.element_type == "record":
-                arr_info["record_type_name"] = node.record_type_name
-
-            # Проверяем типы начальных значений, если они заданы
-
+            record_type_info = self.symbol_table.lookup(node.element_type)
+            if record_type_info and record_type_info.get("type") == "record":
+                # Если для массива записей заданы начальные значения, преобразуем их
+                if node.initial_values is not None:
+                    arr_info["initial_values"] = self.transform_record_array_values(
+                        node.initial_values, node.dimensions, record_type_info
+                    )
             if node.initial_values is not None:
-
                 total_elements = check_array_size_and_types(node.dimensions, node.initial_values)
-
                 if total_elements != size:
                     raise ValueError(f'Array size is incorrect. Expected {size} elements, got {total_elements}')
-
             return arr_info
 
         return None
+
+    def transform_record_array_values(self, values, dimensions, record_type_info, level=0):
+        """
+        Рекурсивно проходит по структуре initial_values массива.
+        Если на базовом уровне обнаруживается RecordInitializerNode,
+        то он преобразуется в словарь с полями, используя validate_record_initializer.
+        """
+        print(values)
+        if level == len(dimensions):
+            if isinstance(values, RecordInitializerNode) or isinstance(values, dict):
+                return self.validate_record_initializer(record_type_info, values)
+            elif isinstance(values, list):
+                return [self.validate_record_initializer(record_type_info, v) for v in values]
+            else:
+                raise Exception(f"Unexpected value type {type(values)} at record array base level")
+        return [
+            self.transform_record_array_values(sub_value, dimensions, record_type_info, level + 1)
+            for sub_value in values
+        ]
 
     def visit_type_declaration(self, node: TypeDeclarationNode):
         name = node.name
@@ -201,69 +213,115 @@ class SemanticAnalyzer:
             info = {'info': arr_info}
             self.symbol_table.declare(name, info)
 
-    def validate_record_initializer(self, record_type_info, initializer_node):
+    def validate_record_initializer(self, record_type_info, initializer):
         """
-        Проверяет инициализацию записи RecordInitializerNode
-        на соответствие информации о типе записи из record_type_info.
+        Проверяет инициализацию записи на соответствие информации о типе записи из record_type_info.
+        Параметр initializer может быть либо объектом RecordInitializerNode, либо словарём вида
+        {'name': value, 'age': value, ...}.
         """
         # Получаем список информации о полях из record_type_info
         fields_info = record_type_info.get("fields_info")
         if not fields_info:
             raise Exception(f"Record type '{record_type_info.get('name')}' has no fields information")
 
-        initializer_fields = initializer_node.fields  # Это список пар (field_name, field_value)
+        type_checks = {
+            "integer": int,
+            "string": str,
+            "boolean": bool
+        }
 
-        # Проверяем, совпадает ли количество полей
-        if len(fields_info) != len(initializer_fields):
-            raise Exception(
-                f"Record initializer has incorrect number of fields for type '{record_type_info.get('name')}'")
+        validated_fields = {}
 
-        # Сравниваем каждое поле
-        for field_info, (init_name, init_value) in zip(fields_info, initializer_fields):
-            field_name = field_info["field_name"]
-            field_type = field_info["field_type"]
+        if isinstance(initializer, RecordInitializerNode):
+            # Получаем список полей в виде списка пар (field_name, field_value)
+            initializer_fields = initializer.fields
 
-            # Проверяем совпадение имен полей
-            if field_name != init_name:
-                raise Exception(f"Field name mismatch: expected '{field_name}', got '{init_name}'")
-
-            # Проверяем тип значения
-            type_checks = {
-                "integer": int,
-                "string": str,
-                "boolean": bool
-            }
-
-            if field_type in type_checks:
-                expected_type = type_checks[field_type]
-                if not isinstance(init_value, expected_type):
-                    raise Exception(
-                        f"Field '{field_name}' expected type '{field_type}', got '{type(init_value).__name__}'")
-
-            elif field_type == "array":
-                # Если тип — массив, вызываем функцию обработки массива
-                arr_info = field_info.get("arr_info")
-                if not arr_info:
-                    raise Exception(f"Array field '{field_name}' has no array info")
-
-                # Проверяем массив, создавая его информацию через create_array_info
-                array_type_node = ArrayTypeNode(
-                    element_type=arr_info["element_type"],
-                    dimensions=arr_info["dimensions"],
-                    initial_values=init_value  # Значение массива для проверки
+            if len(fields_info) != len(initializer_fields):
+                raise Exception(
+                    f"Record initializer has incorrect number of fields for type '{record_type_info.get('name')}'"
                 )
 
-                # Проверяем массив как часть записи
-                self.create_array_info(array_type_node, declaration_place="record")
+            for field_info, (init_name, init_value) in zip(fields_info, initializer_fields):
+                expected_name = field_info["field_name"]
+                field_type = field_info["field_type"]
 
-            else:
-                raise Exception(f"Unsupported field type '{field_type}' in record '{record_type_info.get('name')}'")
+                # Проверяем совпадение имён полей
+                if expected_name != init_name:
+                    raise Exception(f"Field name mismatch: expected '{expected_name}', got '{init_name}'")
 
-        # Если все проверки прошли успешно, возвращаем информацию
+                # Проверяем тип значения
+                if field_type in type_checks:
+                    expected_type = type_checks[field_type]
+                    if not isinstance(init_value, expected_type):
+                        raise Exception(
+                            f"Field '{init_name}' expected type '{field_type}', got '{type(init_value).__name__}'"
+                        )
+                elif field_type == "array":
+                    # Если тип — массив, вызываем функцию обработки массива
+                    arr_info = field_info.get("arr_info")
+                    if not arr_info:
+                        raise Exception(f"Array field '{init_name}' has no array info")
+                    array_type_node = ArrayTypeNode(
+                        element_type=arr_info["element_type"],
+                        dimensions=arr_info["dimensions"],
+                        initial_values=init_value  # Значение массива для проверки
+                    )
+                    self.create_array_info(array_type_node, declaration_place="record")
+                else:
+                    raise Exception(f"Unsupported field type '{field_type}' in record '{record_type_info.get('name')}'")
+
+                validated_fields[init_name] = init_value
+
+        elif isinstance(initializer, dict):
+            # Проверяем, что набор ключей в словаре совпадает с ожидаемым набором имён полей
+            expected_field_names = {field_info["field_name"] for field_info in fields_info}
+            if set(initializer.keys()) != expected_field_names:
+                raise Exception(
+                    f"Record initializer has incorrect set of fields for type '{record_type_info.get('name')}'. "
+                    f"Expected fields: {expected_field_names}, got: {set(initializer.keys())}"
+                )
+            for field_info in fields_info:
+                field_name = field_info["field_name"]
+                field_type = field_info["field_type"]
+                init_value = initializer[field_name]
+
+                if field_type in type_checks:
+                    expected_type = type_checks[field_type]
+                    if not isinstance(init_value, expected_type):
+                        raise Exception(
+                            f"Field '{field_name}' expected type '{field_type}', got '{type(init_value).__name__}'"
+                        )
+                elif field_type == "array":
+                    arr_info = field_info.get("arr_info")
+                    if not arr_info:
+                        raise Exception(f"Array field '{field_name}' has no array info")
+                    array_type_node = ArrayTypeNode(
+                        element_type=arr_info["element_type"],
+                        dimensions=arr_info["dimensions"],
+                        initial_values=init_value  # Значение массива для проверки
+                    )
+                    self.create_array_info(array_type_node, declaration_place="record")
+                # record
+                elif self.symbol_table.lookup(field_type):
+                    validated_fields[field_name] = init_value
+                    return {
+                        "type": "record",
+                        "record_type": record_type_info["name"],
+                        "fields": validated_fields,
+                    }
+                else:
+                    raise Exception(f"Unsupported field type '{field_type}' in record '{record_type_info.get('name')}'")
+
+                validated_fields[field_name] = init_value
+
+        else:
+            raise Exception("Record initializer must be a RecordInitializerNode or a dictionary")
+
+        # Если все проверки прошли успешно, возвращаем информацию о записи
         return {
             "type": "record",
             "record_type": record_type_info["name"],
-            "fields": {init_name: init_value for init_name, init_value in initializer_fields},
+            "fields": validated_fields,
         }
 
     def visit_const_declaration(self, node: ConstDeclarationNode):
@@ -357,6 +415,8 @@ class SemanticAnalyzer:
         elif isinstance(var_type, ArrayTypeNode):
 
             # Если init_value не задан, заполним массив дефолтными значениями
+            """
+            """
             if var_type.initial_values is None:
                 init_value = self.fill_array_with_defaults(
                     dimensions=var_type.dimensions,
@@ -497,6 +557,7 @@ class SemanticAnalyzer:
                 # Используем универсальную create_default_value
                 default_val = self.create_default_value(field_type)
             initializer_fields.append((field_name, default_val))
+            print(initializer_fields)
         fields = {init_name: init_value for init_name, init_value in RecordInitializerNode(fields=initializer_fields).fields}
         return fields
 
@@ -561,6 +622,8 @@ class SemanticAnalyzer:
             return self.visit_array_access_node(node, stmt_type)
         elif isinstance(node, FunctionCallNode):
             return self.visit_function_call_node(node)
+        elif isinstance(node, RecordFieldAccessNode):
+            return self.visit_record_field_access_node(node)
         else:
             raise Exception(f"Unsupported node type in visit_expression_node: {type(node)}")
 
@@ -579,6 +642,8 @@ class SemanticAnalyzer:
                 self.visit_term_node(term, stmt_type)
             elif isinstance(term, ArrayAccessNode):
                 self.visit_array_access_node(term, stmt_type)
+            elif isinstance(term, RecordFieldAccessNode):
+                self.visit_record_field_access_node(term, stmt_type)
             else:
                 print(type(term))
                 raise Exception(f"Некорректный элемент в terms: {term}")
@@ -602,10 +667,15 @@ class SemanticAnalyzer:
             if not var_info:
                 raise Exception(f"Ошибка: переменная {node.identifier} не объявлена")
             var_type = var_info.get('info', {}).get('type')
-            print("Тип переменной:", var_type)
+            print("Тип переменной:", var_info)
             # Only check if an expected type was given
             if stmt_type is not None and var_type != stmt_type:
-                raise Exception(f"Ошибка типов: {var_type} != {stmt_type} для {node.identifier}")
+                if var_type != 'record':
+                    raise Exception(f"Ошибка типов: {var_type} != {stmt_type} для {node.identifier}")
+                elif var_type == 'record':
+                    var_type = var_info.get('info', {}).get('record_type')
+                    if stmt_type is not None and var_type != stmt_type:
+                        raise Exception(f"Ошибка типов: {var_type} != {stmt_type} для {node.identifier}")
             print(self.code_generator)
             return self.code_generator.generate(node)
 
@@ -845,6 +915,7 @@ class SemanticAnalyzer:
                 raise Exception(f"Ошибка: переменная/запись '{node.record_obj}' не объявлена")
             # Из переменной получаем имя типа записи.
             record_type = var_info.get("info", {}).get("record_type")
+
             if not record_type:
                 raise Exception(f"Ошибка: переменная '{node.record_obj}' не является записью")
             # Ищем определение записи по record_type.
@@ -860,6 +931,7 @@ class SemanticAnalyzer:
 
         elif isinstance(node.record_obj, ArrayAccessNode):
             # Если record_obj – это обращение к элементу массива, предполагаем, что тип элемента – запись.
+            self.visit_array_access_node(node.record_obj, stmt_type)
             base_array_name, indices = self.flatten_array_access(node.record_obj)
             array_info = self.symbol_table.lookup(base_array_name)
             if not array_info:
@@ -884,7 +956,7 @@ class SemanticAnalyzer:
             inner_field_type = self.get_record_field_type(node.record_obj)
             print(inner_field_type)
             if not inner_field_type:
-                #self.visit_record_field_access_node()
+                #self.visit_record_field_access_node(node.record_obj)
                 raise Exception(f"Ошибка: не удалось определить тип вложенной записи в {node.record_obj}")
             record_def = self.symbol_table.lookup(inner_field_type)
             if not record_def or record_def.get("type") != "record":

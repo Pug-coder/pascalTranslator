@@ -27,10 +27,9 @@ const
     s: string = "awsd";
     p: TPerson = (name: "John"; age: 30);
 var
-    a, b: string;
-	arr1: array [1..3,1..2] of string;
-	arr2: array [1..3] of integer = (1, 23, 456);
+	arr2: array [1..3] of integer;
 	arr3, niz: array [1..4] of integer;
+	arr: array [1..3] of TPerson;
     person: TPerson;
     person1: TPerson1;
     i, n, j, number, temp: integer;
@@ -38,7 +37,6 @@ var
 begin
     number := 3;
     isEven := False;
-    arr1[1][2] := "2";
     person1.p.name := "John";
     person.age := 25;
     number := Sum(1,2);
@@ -56,7 +54,7 @@ begin
 			end
 			else
 			begin
-			    a := "-________-";
+
 			end;
 		end;
 	end;

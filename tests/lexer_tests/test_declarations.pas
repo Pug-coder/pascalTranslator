@@ -1,48 +1,47 @@
 program TestDecl;
 
+procedure DoSomething;
+var x: integer;
+begin
+    x := 5;
+end;
+
+type
+Point = record x, y: integer end;
+Line = record start, endd: Point end;
 type
   TPerson = record
     name: string;
     age: integer;
   end;
-
+var
+i,j,k: integer;
+p : Point;
+l : Line;
+b : array[5..10] of integer;
+a : array[5..10] of Point;
 const
-    y: integer = 2;
-    p: TPerson;
-    arr1: array [1..3] of integer;
-	arr2: array [1..3] of integer = ();
+    y: integer= 2;
+    s: string = "awsd";
+    p1: TPerson = (name: "John"; age: 30);
+
+procedure f(var d: integer);
 var
-    x: integer = 3;
-    arr1: array [1..3] of integer;
-	arr2: array [1..3] of integer = (1, 23, 456);
-
-procedure DoSomething;
+a : array[5..10] of Point;
+b : array[5..10] of integer;
+p : Point;
+s, t, u: string;
+i,j: integer;
 begin
-    x := 5;
-    writeln("DoSomething called, x = ", x);
-end;
-
-procedure PrintArray(var a: array [1..3] of integer);
-var
-    i: integer;
-begin
-    writeln(a);
-end;
-
-function Sum(a, b: integer): integer;
-begin
-    Sum := a + b;
-end;
-
-
-function MaxValue(const data: array [1..3] of integer): integer;
-var
-    i: integer;
-    m: integer;
-begin
-    MaxValue := m;
+    d := d + 1;
+    a[j].x := a[i].x;
+    b[i] := b[j];
+    p.x := p.y;
+    s := "hello";
+    t := " world";
+    s := s + t;
+    u := s + t;
 end;
 
 begin
-  x := 2;
 end.

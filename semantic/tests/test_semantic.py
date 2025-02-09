@@ -1,6 +1,7 @@
 import json
 
 from generator.codegen import CodeGenerator
+from generator.valid_structure import ValidStructure
 from lexer.lexer import Lexer
 from parser.parser import Parser
 from semantic.semantic_analyzer import SemanticAnalyzer
@@ -20,7 +21,7 @@ generated_code_file = 'generated_code.txt'  # Файл для сгенериро
 with open(parser_log_file, 'w', encoding='utf-8') as parser_log, \
      open(semantic_log_file, 'w', encoding='utf-8') as semantic_log:
     # Лексический анализ
-    lexer = Lexer(filename=files[1])
+    lexer = Lexer(filename=files[0])
     tokens = lexer.tokenize()
 
     # Парсинг
@@ -66,12 +67,14 @@ with open(parser_log_file, 'w', encoding='utf-8') as parser_log, \
 
 # Теперь генерируем код на основе таблицы символов и списка операторов.
 # Создаём экземпляр класса Translator, передавая ему semantic_json и список операторов.
-translator = Translator(semantic_json, sem.code_generator['statements'])
+translator = Translator(sem.symbol_table, semantic_json, sem.code_generator['statements'])
 generated_code = translator.translate()
 
 # Сохраняем сгенерированный код в отдельный файл
 with open(generated_code_file, 'w', encoding='utf-8') as code_file:
     code_file.write(generated_code)
 
-print("Сгенерированный код:")
-print(generated_code)
+#print("Сгенерированный код:")
+#print(generated_code)
+
+#generated_code = translator.translate()

@@ -3,7 +3,7 @@ import re
 
 
 class Translator:
-    def __init__(self, semantic_json, statements):
+    def __init__(self, glob_sym_table,semantic_json, statements):
         """
         semantic_json: словарь вида
           {
@@ -14,10 +14,13 @@ class Translator:
         statements: список операторов (AST-узлов), полученных после семантического анализа,
                     например: sem.code_generator['statements']
         """
+        self.glob_sym_table = glob_sym_table
         self.semantic_json = semantic_json
         self.symbol_table = semantic_json.get("GLOBAL Symbol_Table", {})
         self.statements = statements
         self.output_lines = []
+        self.global_var_decl = []
+        self.local_var_decl = []
 
     def translate(self):
         # Сначала обрабатываем объявления из таблицы символов.
@@ -29,30 +32,18 @@ class Translator:
             # Если это структура
             elif info.get("type") == "record":
                 self.output_lines.append(self.translate_record(symbol, info))
-            # Если это объявление типа, записанного в "info" (например, массив)
-            elif "info" in info and isinstance(info["info"], dict):
-                ttype = info.get("type")
-                nested_type = info["info"].get("type")
-                # Если тип во вложенном словаре – array, то обрабатываем как тип-массив
-                if nested_type == "array":
-                    self.output_lines.append(self.translate_array_type(symbol, info["info"], ttype))
-                else:
-                    # Если вдруг что-то ещё – можно обрабатывать как переменную
-                    self.output_lines.append(self.translate_variable(symbol, info))
+
             # Если это переменная (например, var), которая может иметь вложенный info
             elif info.get("type") == "var":
                 # В данном случае может быть как обычная переменная, так и переменная-массив, если тип записан во вложенном info
-                if "info" in info and isinstance(info["info"], dict):
-                    nested_type = info["info"].get("type")
-                    if nested_type == "array":
-                        self.output_lines.append(self.translate_variable(symbol, info))
-                    else:
-                        self.output_lines.append(self.translate_variable(symbol, info))
-                else:
-                    self.output_lines.append(self.translate_variable(symbol, info))
+
+                self.global_var_decl.append(self.translate_variable(symbol, info))
+
             elif "kind" in info:
                 self.output_lines.append(self.translate_function(symbol, info))
-
+        print(self.global_var_decl)
+        var_block = "(var\n  " + "\n  ".join(self.global_var_decl) + "\n)"
+        self.output_lines.append(var_block)
         # Затем обрабатываем операторы из сгенерированного списка.
         for stmt in self.statements:
             self.output_lines.append(self.translate_statement(stmt))
@@ -91,8 +82,16 @@ class Translator:
           (struct TPerson (name string) (age integer))
         """
         fields = info.get("fields_info", [])
-        fields_code = " ".join(f"({field['field_name']} {field['field_type']})" for field in fields)
-        return f"(struct {name} {fields_code})"
+
+        def map_type_val(field):
+            mapping = {
+                "integer": 1,
+                "boolean": 1
+            }
+            return mapping.get(field['field_type'], field['field_type'])
+
+        fields_code = " ".join(f"\n ({name}_{field['field_name']} {map_type_val(field)})" for field in fields)
+        return f"(struct {name} {fields_code}\n)"
 
     def translate_array_type(self, name, info, ttype):
         """
@@ -101,6 +100,7 @@ class Translator:
           (const subarray (array integer 4))
         """
         element_type = info.get("element_type")
+        print(info)
         size = info.get("size")
         return f"({ttype} {name} (array {element_type} {size}))"
 
@@ -131,7 +131,8 @@ class Translator:
         else:
             # Предположим, что value у нас содержится прямо в inner под ключом 'value'
             value = inner.get("value", "0")
-            return f"(const {name} {value})"
+            return f'(const {name} "=" {value})'
+
 
     def process_fields(self, prefix, fields):
         """
@@ -177,7 +178,7 @@ class Translator:
             element_type = var_info.get("element_type")
             size = var_info.get("size")
             type_expr = f"(array {element_type} \"*\" {size})"
-            return f"(var {name} {type_expr})"
+            return self.translate_glob_var_array(name, info)
 
         elif vtype == "record":
             record_type = var_info.get("record_type")
@@ -185,12 +186,61 @@ class Translator:
             # Рекурсивно обрабатываем поля, чтобы корректно учесть вложенные структуры
             field_inits = self.process_fields(record_type, fields)
             fields_code = " ".join(field_inits)
-            return f"(var {name} (struct {record_type} {fields_code}))"
+            return self.translate_global_var_struct(name, info)
 
         else:
             # Если это простой тип (например, string, integer и т.д.)
-            type_expr = vtype
-            return f"(var {name} {type_expr})"
+            #type_expr = vtype
+            return self.translate_global_simple_var(name, info)
+
+    #
+    def translate_global_simple_var(self, name, info):
+        """
+            транслируем переменные простого типа
+            считаем что простой тип это integer, boolean
+
+        :param name:
+        :param info:
+        :return: (название перменной размер)
+        """
+        var_info = info.get("info", {})
+        vtype = var_info.get("type")
+        if vtype in ['integer', 'boolean']:
+            size = 1
+            return f'({name} {size})'
+        # To be continued...
+
+    def translate_global_var_struct(self, name, info):
+        """
+            транслируем переменные структур
+        :param name:
+        :param info:
+        :return:  (название переменной имя структуры)
+        """
+        var_info = info.get("info", {})
+        record_type = var_info.get("record_type")
+        return f"({name} {record_type})"
+
+    def translate_glob_var_array(self, name, info):
+        """
+            транслируем переменную массива
+        :param name:
+        :param info:
+        :return:
+        """
+        var_info = info.get("info", {})
+        element_type = var_info.get("element_type")
+
+        # Вложенные массивы не поддерживаем
+        dims = var_info.get("dimensions")[0]
+        low, high = dims[0], dims[1]
+        if element_type == 'integer':
+            return f'({name} (({high} "-" {low}) "+" 1))'
+        # record
+        elif element_type != 'string':
+            return f'({name} ((({high} "-" {low}) "+" 1) "*" {element_type}))'
+
+
 
     def translate_function(self, name, info):
         """
@@ -227,6 +277,7 @@ class Translator:
                 # (в исходном примере для 'c' и 'd' значение равно 0)
                 var_value = var_info.get("info", {}).get("value", "")
                 vtype = var_info.get("type")
+
                 local_vars_lines.append(f"    ({vtype} {var_name} \"=\" {var_value})")
             local_vars_lines.append("  )")
         else:
@@ -253,10 +304,19 @@ class Translator:
     # --------------- Перевод операторов и выражений ---------------
 
     def translate_statement(self, stmt):
+        print(stmt)
         stype = stmt.get("type")
         if stype == "Assignment":
-            target_code = self.translate_expr(stmt.get("target"))
-            value_code = self.translate_expr(stmt.get("value"))
+            # Левую часть обрабатываем как lvalue, правую — как rvalue
+            target_code = self.translate_expr(stmt.get("target"), lvalue=True)
+            value_code = self.translate_expr(stmt.get("value"), lvalue=False)
+
+            # Если тип целевой переменной — структура, то вместо обычного "=" генерируем вызов memcpy_
+            var = self.glob_sym_table.lookup(stmt.get("target").get("name"))
+            if var:
+                vinfo = var.get("info")
+                if vinfo.get("type") == "record":
+                    return f"{target_code} {value_code}"
             return f"({target_code} \"=\" {value_code})"
         elif stype == "ProcedureCall":
             name = stmt.get("name")
@@ -274,37 +334,80 @@ class Translator:
         else:
             return f";;; Неизвестный оператор: {stype}"
 
-    def translate_expr(self, expr):
+    def translate_var_expr(self, expr):
+        ...
+
+    def translate_expr(self, expr, lvalue=False):
         etype = expr.get("type")
-        if etype == "Variable":
-            return expr.get("name")
-        elif etype == "Integer":
+
+        if etype == "Integer":
             val = expr.get("value")
             if isinstance(val, bool):
-                return "true" if val else "false"
+                return "1" if val else "0"
             return str(val)
+
+        elif etype == "Variable":
+            var = self.glob_sym_table.lookup(expr.get("name"))
+            vinfo = var.get("info")
+            print(vinfo)
+            if vinfo.get("type") == 'integer':
+                return expr.get("name")
+            if vinfo.get("type") == 'record':
+                if lvalue:
+                    return f'(call memcpy_ (L ({expr.get("name")} "*" {vinfo.get("record_type")})))'
+                if not lvalue:
+                    return f'( L ({expr.get("name")} "*" {vinfo.get("record_type")})) {vinfo.get("record_type")})'
+
         elif etype == "String":
             return f"\"{expr.get('value')}\""
         # Объединяем обработку для BinaryOperation и BinaryExpression
         elif etype in ("BinaryOperation", "BinaryExpression"):
             op = expr.get("operator")
-            left = self.translate_expr(expr.get("left", {}))
-            right = self.translate_expr(expr.get("right", {}))
+            left = self.translate_expr(expr.get("left", {}), lvalue)
+            right = self.translate_expr(expr.get("right", {}), lvalue)
             return f"({left} {op} {right})"
         elif etype == "FunctionCall":
             name = expr.get("name")
             args = expr.get("arguments", [])
-            args_code = " ".join(self.translate_expr(arg) for arg in args)
+            args_code = " ".join(self.translate_expr(arg, lvalue) for arg in args)
             return f"({name} {args_code})"
+
         elif etype == "ArrayAccess":
             array_name = expr.get("array")
+
+            arr_info = self.glob_sym_table.lookup(array_name)
+            element_type = arr_info.get('info').get("element_type")
+            dims = arr_info.get('info').get("dimensions")[0]
+            low, high = dims[0], dims[1]
+
+
             indices = expr.get("indices", [])
-            indices_code = " ".join(self.translate_expr(ind) for ind in indices)
-            return f"(L {array_name} {indices_code})"
+            indices_code = " ".join(self.translate_expr(ind, lvalue) for ind in indices)
+
+            if element_type == 'integer':
+                return f'({array_name} "+" (((L {indices_code}) "-" {low}) ))'
+            # record
+            elif element_type != 'string':
+                return f'({array_name} "+" (((L {indices_code}) "-" {low})) "*" {element_type}))'
+            return f'(({array_name} "+" (L {indices_code}) "-" ))'
+
         elif etype == "RecordFieldAccess":
-            record_expr = self.translate_expr(expr.get("record"))
+            record_expr = self.translate_expr(expr.get("record"), lvalue)
             field = expr.get("field")
-            return f"{record_expr}_{field}"
+            if 'name' in expr.get("record"):
+                var = self.glob_sym_table.lookup(expr.get("record")['name'])
+                vinfo = var.get("info")
+                if lvalue:
+                    return f'({expr.get("record")["name"]} "+" {vinfo.get("record_type")}_{field})'
+                elif not lvalue:
+                    return f'(L ({expr.get("record")["name"]} "+" {vinfo.get("record_type")}_{field}))'
+            elif 'array' in expr.get("record"):
+                var = self.glob_sym_table.lookup(expr.get("record")['array'])
+                vinfo = var.get("info")
+                elem_type = vinfo.get('element_type')
+                if elem_type not in ['integer','string']:
+                    return f'({record_expr} "+" {elem_type}_{field})'
+
         return "UNKNOWN_EXPR"
 
     def translate_block(self, block, indent=""):
