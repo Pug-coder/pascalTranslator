@@ -667,9 +667,12 @@ class SemanticAnalyzer:
             if not var_info:
                 raise Exception(f"Ошибка: переменная {node.identifier} не объявлена")
             var_type = var_info.get('info', {}).get('type')
+            print('inf',var_info)
+            if var_info.get('kind') == 'parameter':
+                var_type = var_info.get('type')
             print("Тип переменной:", var_info)
             # Only check if an expected type was given
-            if stmt_type is not None and var_type != stmt_type:
+            if stmt_type is not None and str(var_type) != str(stmt_type):
                 if var_type != 'record':
                     raise Exception(f"Ошибка типов: {var_type} != {stmt_type} для {node.identifier}")
                 elif var_type == 'record':
@@ -915,11 +918,15 @@ class SemanticAnalyzer:
                 raise Exception(f"Ошибка: переменная/запись '{node.record_obj}' не объявлена")
             # Из переменной получаем имя типа записи.
             record_type = var_info.get("info", {}).get("record_type")
-
+            if var_info.get('kind') == 'parameter':
+                record_type = str(var_info.get('type'))
             if not record_type:
                 raise Exception(f"Ошибка: переменная '{node.record_obj}' не является записью")
             # Ищем определение записи по record_type.
+            print(record_type)
+
             record_def = self.symbol_table.lookup(record_type)
+
             if not record_def or record_def.get("type") != "record":
                 raise Exception(f"Ошибка: '{record_type}' не является корректной записью")
             # Извлекаем информацию о полях.
@@ -988,9 +995,12 @@ class SemanticAnalyzer:
         print("node", node.record_obj)
         if isinstance(node.record_obj, str):
             var_info = self.symbol_table.lookup(node.record_obj)
+
             if not var_info:
                 return None
             record_type = var_info.get("info", {}).get("record_type")
+            if var_info.get('kind') == 'parameter':
+                record_type = str(var_info.get('type'))
             if not record_type:
                 return None
             record_def = self.symbol_table.lookup(record_type)

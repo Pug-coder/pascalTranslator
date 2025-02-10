@@ -15,7 +15,7 @@ files = [
 # Файлы для логов
 parser_log_file = 'parser_log.json'
 semantic_log_file = 'semantic_log.json'
-generated_code_file = 'generated_code1.txt'  # Файл для сгенерированного кода
+generated_code_file = 'generated_code2.txt'  # Файл для сгенерированного кода
 
 
 with open(parser_log_file, 'w', encoding='utf-8') as parser_log, \

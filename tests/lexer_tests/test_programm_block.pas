@@ -10,7 +10,30 @@ type
   TPerson1 = record
     p: TPerson;
   end;
+  Point = record
+    x: integer;
+    y: integer;
+    end;
+procedure g(
+var x: Point;
+var y: integer
+);
+begin
+  x.x := y;
+  y := y + 1;
+end;
 
+procedure DoSomething;
+var x: integer;
+begin
+    x := 5;
+end;
+
+function Sum(var a, b: integer): integer;
+var c,d: integer;
+begin
+    a := a + b;
+end;
 
 const
     y: integer= 2;
