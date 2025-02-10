@@ -10,17 +10,7 @@ type
   TPerson1 = record
     p: TPerson;
   end;
-procedure DoSomething;
-var x: integer;
-begin
-    x := 5;
-end;
 
-function Sum(var a, b: integer): integer;
-var c,d: integer;
-begin
-    Sum := a + b;
-end;
 
 const
     y: integer= 2;
@@ -37,11 +27,11 @@ var
 begin
     number := 3;
     isEven := False;
-    person1.p.name := "John";
+
     person.age := 25;
-    number := Sum(1,2);
+
     arr3[1] := 2 + 1;
-    DoSomething;
+
 	for i := 1 to n do
 	begin
 		for j := i + 1 to n do
