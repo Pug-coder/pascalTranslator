@@ -431,38 +431,46 @@ class Translator:
                 return f'(({array_name} + ({self._load(index_code)} - {low})))'
 
     def _translate_record_field_access(self, expr, lvalue, sym_table=None):
-        record_expr = self.translate_expr(expr.get("record"), lvalue, sym_table)
-        field = expr.get("field")
+        # Предполагаем, что для обращения к полю записи базовый оператор задаётся как { "name": "p" }
         rec = expr.get("record")
+        field = expr.get("field")
+        # Если базовая запись задана по имени, то используем его напрямую
         if "name" in rec:
-            var = self._lookup_symbol(rec["name"], sym_table)
+            record_expr = rec["name"]
+            var = self._lookup_symbol(record_expr, sym_table)
             # Если для символа нет вложенного "info", используем сам var как информацию о типе.
             if var.get("info") is not None:
                 vinfo = var.get("info")
             else:
                 vinfo = var
-            # Если это параметр и нет поля record_type, берем тип из ключа "type"
+            # Если это параметр и нет record_type, берём тип из "type"
             if vinfo.get("kind") == "parameter" and not vinfo.get("record_type"):
                 rec_type = vinfo.get("type", "")
             else:
                 rec_type = vinfo.get("record_type", "")
+            # Формируем выражение для доступа к полю.
+            # Форматируем оператор плюс как литерал: " + "
             if lvalue:
-                return f'({record_expr} "+" {rec_type}_{field})'
+                # Для lvalue оставляем базовый адрес без загрузки
+                return f"({record_expr} \"+\" {rec_type}_{field})"
             else:
-                tmp = f"{record_expr} + {rec_type}_{field}"
-                return f'({self._load(tmp)})'
+                # Для rvalue оборачиваем итоговое выражение в (L ...)
+                temp = self._load(f'{record_expr} \"+\" {rec_type}_{field}')
+                return f"({temp})"
+        # Если запись задаётся через массив, аналогично обрабатываем (реже встречается)
         elif "array" in rec:
-            var = self._lookup_symbol(rec["array"], sym_table)
+            record_expr = rec["array"]
+            var = self._lookup_symbol(record_expr, sym_table)
             if var.get("info") is not None:
                 vinfo = var.get("info")
             else:
                 vinfo = var
             elem_type = vinfo.get("element_type", "")
             if lvalue:
-                return f'({record_expr} "+" {elem_type}_{field})'
+                return f"({record_expr} \"+\" {elem_type}_{field})"
             else:
-                tmp = f"{record_expr} + {elem_type}_{field}"
-                return f'({self._load(tmp)})'
+                temp = self._load(f'{record_expr} \"+\" {elem_type}_{field}')
+                return f"({temp})"
         return "UNKNOWN_FIELD_ACCESS"
 
     # ========================================================
