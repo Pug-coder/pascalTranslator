@@ -710,9 +710,10 @@ class SemanticAnalyzer:
             if not func_info:
                 raise Exception(f"Ошибка: функция '{node.identifier}' не объявлена")
             return func_info.get('return_type')
-        if isinstance(node, ExpressionNode):
+        elif isinstance(node, ExpressionNode):
             if node.relational_operator:
                 left_type = self.get_expression_type(node.left, detailed)
+
                 right_type = self.get_expression_type(node.right, detailed)
                 if left_type != right_type:
                     raise Exception(
@@ -739,6 +740,8 @@ class SemanticAnalyzer:
         if node.identifier:
             var_info = self.symbol_table.lookup(node.identifier)
             if not detailed:
+                if var_info.get('kind') == 'parameter':
+                    return str(var_info.get('type'))
                 return var_info.get('info', {}).get('type') if var_info else None
             else:
                 return var_info.get('info', {})
