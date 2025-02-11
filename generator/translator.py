@@ -1,10 +1,6 @@
 import ast
 import re
 
-
-import re
-import ast
-
 from semantic.symbol_table import SymbolTable
 
 
@@ -44,9 +40,12 @@ class Translator:
             var_block = "(var\n  " + "\n  ".join(self.global_var_decl) + "\n)"
             self.output_lines.append(var_block)
 
+        self.output_lines.append('( function main_')
         # 2. Обрабатываем операторы.
         for stmt in self.statements:
             self.output_lines.append(self.translate_statement(stmt))
+
+        self.output_lines.append(')')
 
         return "\n".join(self.output_lines)
 
@@ -64,9 +63,9 @@ class Translator:
     def _call_memcpy(self, target, source, type_spec=None):
         """Генерирует вызов memcpy_ с необязательным указанием типа."""
         if type_spec:
-            return f"(call memcpy_ {target} {source} {type_spec})"
+            return f"(call memcpy_ {target} {source} {type_spec}"
         else:
-            return f"(call memcpy_ {target} {source})"
+            return f"(call memcpy_ {target} {source}"
 
     def _lookup_symbol(self, name, sym_table=None):
         """
@@ -277,6 +276,7 @@ class Translator:
             f"{ret_line}\n)"
         )
         return func_code
+
     # ========================================================
     # Перевод операторов
     # ========================================================
@@ -311,15 +311,19 @@ class Translator:
             if vinfo.get("type") == "record":
                 return f"{target_code} {value_code}"
             if vinfo.get("type") == "array":
+                elem_type = vinfo.get("element_type")
+                dims = vinfo.get("dimensions")[0]
+                low, high = dims[0], dims[1]
+
                 if vinfo.get("element_type") not in ['integer', "string"]:
-                    return self._call_memcpy(target_code, value_code, vinfo.get('element_type'))
-                return self._call_memcpy(target_code, value_code)
+                    return f'({self._call_memcpy(target_code, value_code, vinfo.get("element_type"))}({elem_type}) "*" (({high} - {low}) "+" 1)))'
+                return f'{self._call_memcpy(target_code, value_code)} (({high} - {low}) "+" 1))'
         if target_expr.get("type") == 'ArrayAccess':
             var = self._lookup_symbol(target_expr.get("array"), sym_table=sym_table)
             # Аналогично, проверяем наличие информации о типе.
             vinfo = var.get("info") if var.get("info") is not None else var
             if vinfo.get("element_type") not in ['integer', "string"]:
-                return self._call_memcpy(target_code, value_code, vinfo.get('element_type'))
+                return f'({self._call_memcpy(target_code, value_code, vinfo.get("element_type"))})'
         return f"({target_code} \"=\" {value_code})"
 
     def _translate_procedure_call(self, stmt):
@@ -386,14 +390,15 @@ class Translator:
             return var_name
         if vtype == 'record':
             rec_type = vinfo.get("record_type")
-            tmp = f"{var_name} * {rec_type}"
+            tmp = f'{var_name} "*" {rec_type}'
             if lvalue:
                 return f"(call memcpy_ {self._load(tmp)})"
             else:
                 return f"({self._load(tmp)} {rec_type})"
         if vtype == 'array':
-            return self._load(var_name)
+            return f'{var_name}'
         return var_name
+
     def _translate_binary(self, expr, lvalue, sym_table=None):
         op = expr.get("operator")
         left = self.translate_expr(expr.get("left"), lvalue, sym_table)
@@ -414,9 +419,11 @@ class Translator:
         low = dims[0]
         indices = expr.get("indices", [])
         # Предположим, что используется один индекс.
+
         index_code = self.translate_expr(indices[0], lvalue, sym_table) if indices else "0"
         if lvalue:
             if element_type == 'integer':
+                # здесь ошибка, всегда L даже если число
                 return f'({array_name} "+" (({self._load(index_code)} "-" {low})))'
             elif element_type != 'string':
                 return f'({array_name} "+" (({self._load(index_code)} "-" {low}) "*" {element_type}))'
@@ -424,11 +431,12 @@ class Translator:
                 return f'(({array_name} "+" {self._load(index_code)} "-" {low}))'
         else:
             if element_type == 'integer':
-                return f'({self._load(f"{array_name} + (({self._load(index_code)} - {low}))")})'
+                temp = f'({array_name} + (({self._load(index_code)} "-" {low})))'
+                return f'({self._load(temp)})'
             elif element_type != 'string':
-                return f'{array_name} + ((({self._load(index_code)} - {low}) * {element_type}))'
+                return f'{array_name} "+" ((({self._load(index_code)} "-" {low}) "*" {element_type}))'
             else:
-                return f'(({array_name} + ({self._load(index_code)} - {low})))'
+                return f'(({array_name} "+" ({self._load(index_code)} "-" {low})))'
 
     def _translate_record_field_access(self, expr, lvalue, sym_table=None):
         # Предполагаем, что для обращения к полю записи базовый оператор задаётся как { "name": "p" }
@@ -452,7 +460,7 @@ class Translator:
             # Форматируем оператор плюс как литерал: " + "
             if lvalue:
                 # Для lvalue оставляем базовый адрес без загрузки
-                return f"({record_expr} \"+\" {rec_type}_{field})"
+                return f'({record_expr} \"+\" {rec_type}_{field})'
             else:
                 # Для rvalue оборачиваем итоговое выражение в (L ...)
                 temp = self._load(f'{record_expr} \"+\" {rec_type}_{field}')
@@ -467,7 +475,7 @@ class Translator:
                 vinfo = var
             elem_type = vinfo.get("element_type", "")
             if lvalue:
-                return f"({record_expr} \"+\" {elem_type}_{field})"
+                return f'({record_expr} \""+"\" {elem_type}_{field})'
             else:
                 temp = self._load(f'{record_expr} \"+\" {elem_type}_{field}')
                 return f"({temp})"
@@ -523,6 +531,3 @@ class Translator:
             return f"(if {condition}\n  {then_part}\n  {else_part}\n)"
         else:
             return f"(if {condition}\n  {then_part}\n)"
-
-
-
