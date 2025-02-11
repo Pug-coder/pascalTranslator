@@ -9,6 +9,7 @@ from generator.translator import Translator  # Импортируем наш к�
 
 files = [
     '../../tests/semantic_tests/test_decl.pas',
+
     '../../tests/lexer_tests/test_programm_block.pas',
 ]
 

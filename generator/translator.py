@@ -43,7 +43,7 @@ class Translator:
         self.output_lines.append('( function main_')
         # 2. Обрабатываем операторы.
         for stmt in self.statements:
-            self.output_lines.append(self.translate_statement(stmt))
+            self.output_lines.append("  " + self.translate_statement(stmt))
 
         self.output_lines.append(')')
 
@@ -63,7 +63,7 @@ class Translator:
     def _call_memcpy(self, target, source, type_spec=None):
         """Генерирует вызов memcpy_ с необязательным указанием типа."""
         if type_spec:
-            return f"(call memcpy_ {target} {source} {type_spec}"
+            return f"(call memcpy_ {target} {source} {type_spec})"
         else:
             return f"(call memcpy_ {target} {source}"
 
@@ -259,6 +259,7 @@ class Translator:
         # 3. Обработка тела функции.
         block = info.get("block_code", {})
         if block.get("type") in ("block", "Block"):
+            print('loc', local_sym_table.symbols)
             body_code = self.translate_block(block, indent="  ", sym_table=local_sym_table)
         else:
             body_code = ";; тело функции отсутствует"
@@ -323,7 +324,7 @@ class Translator:
             # Аналогично, проверяем наличие информации о типе.
             vinfo = var.get("info") if var.get("info") is not None else var
             if vinfo.get("element_type") not in ['integer', "string"]:
-                return f'({self._call_memcpy(target_code, value_code, vinfo.get("element_type"))})'
+                return f'({self._call_memcpy(target_code, value_code, vinfo.get("element_type"))}))'
         return f"({target_code} \"=\" {value_code})"
 
     def _translate_procedure_call(self, stmt):
@@ -377,7 +378,10 @@ class Translator:
 
         # Если это параметр функции, оборачиваем в (L ...)
         if var.get("kind") == "parameter":
-            return self._load(var_name)
+            if lvalue:
+                return self._load(var_name)
+            elif not lvalue:
+                return self._load(self._load(var_name))
 
         # Если ключ "info" отсутствует или равен None, используем сам var как информацию о типе
         if "info" in var and var["info"] is not None:
@@ -390,11 +394,11 @@ class Translator:
             return var_name
         if vtype == 'record':
             rec_type = vinfo.get("record_type")
-            tmp = f'{var_name} "*" {rec_type}'
+            tmp = f'({var_name} "*" {rec_type})'
             if lvalue:
-                return f"(call memcpy_ {self._load(tmp)})"
+                return f"(call memcpy_ {self._load(tmp)}"
             else:
-                return f"({self._load(tmp)} {rec_type})"
+                return f"({self._load(tmp)} {rec_type}))"
         if vtype == 'array':
             return f'{var_name}'
         return var_name
@@ -424,17 +428,17 @@ class Translator:
         if lvalue:
             if element_type == 'integer':
                 # здесь ошибка, всегда L даже если число
-                return f'({array_name} "+" (({self._load(index_code)} "-" {low})))'
+                return f'({array_name} "+" (({index_code} "-" {low})))'
             elif element_type != 'string':
                 return f'({array_name} "+" (({self._load(index_code)} "-" {low}) "*" {element_type}))'
             else:
                 return f'(({array_name} "+" {self._load(index_code)} "-" {low}))'
         else:
             if element_type == 'integer':
-                temp = f'({array_name} + (({self._load(index_code)} "-" {low})))'
+                temp = f'({array_name} + (({index_code} "-" {low})))'
                 return f'({self._load(temp)})'
             elif element_type != 'string':
-                return f'{array_name} "+" ((({self._load(index_code)} "-" {low}) "*" {element_type}))'
+                return f'({array_name} "+" ((({self._load(index_code)} "-" {low}) "*" {element_type}))'
             else:
                 return f'(({array_name} "+" ({self._load(index_code)} "-" {low})))'
 
@@ -463,9 +467,9 @@ class Translator:
                 return f'({record_expr} \"+\" {rec_type}_{field})'
             else:
                 # Для rvalue оборачиваем итоговое выражение в (L ...)
-                temp = self._load(f'{record_expr} \"+\" {rec_type}_{field}')
+                temp = self._load(f'({record_expr} \"+\" {rec_type}_{field})')
                 return f"({temp})"
-        # Если запись задаётся через массив, аналогично обрабатываем (реже встречается)
+        # Если запись задаётся через массив, аналогично обрабатываем
         elif "array" in rec:
             record_expr = rec["array"]
             var = self._lookup_symbol(record_expr, sym_table)
@@ -475,7 +479,7 @@ class Translator:
                 vinfo = var
             elem_type = vinfo.get("element_type", "")
             if lvalue:
-                return f'({record_expr} \""+"\" {elem_type}_{field})'
+                return f'({record_expr} \"+\" {elem_type}_{field})'
             else:
                 temp = self._load(f'{record_expr} \"+\" {elem_type}_{field}')
                 return f"({temp})"
@@ -516,7 +520,7 @@ class Translator:
         """
         Перевод цикла While.
         """
-        condition = self.translate_expr(stmt.get("condition"), sym_table)
+        condition = self.translate_expr(stmt.get("condition"), sym_table=sym_table)
         body = self.translate_block(stmt.get("body"), indent="  ", sym_table=sym_table)
         return f"(while {condition}\n{body}\n)"
 
@@ -524,7 +528,7 @@ class Translator:
         """
         Перевод оператора If.
         """
-        condition = self.translate_expr(stmt.get("condition"), sym_table)
+        condition = self.translate_expr(stmt.get("condition"), sym_table=sym_table)
         then_part = self.translate_block(stmt.get("then"), indent="  ", sym_table=sym_table)
         if stmt.get("else"):
             else_part = self.translate_block(stmt.get("else"), indent="  ", sym_table=sym_table)
