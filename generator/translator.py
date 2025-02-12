@@ -208,7 +208,7 @@ class Translator:
         element_type = var_info.get("element_type")
         dims = var_info.get("dimensions")[0]
         low, high = dims[0], dims[1]
-        if element_type == 'integer':
+        if element_type in ['integer', 'char']:
             return f'({name} (({high} "-" {low}) "+" 1))'
         elif element_type != 'string':
             return f'({name} ((({high} "-" {low}) "+" 1) "*" {element_type}))'
@@ -316,14 +316,14 @@ class Translator:
                 dims = vinfo.get("dimensions")[0]
                 low, high = dims[0], dims[1]
 
-                if vinfo.get("element_type") not in ['integer', "string"]:
+                if vinfo.get("element_type") not in ['integer', "string", "char"]:
                     return f'({self._call_memcpy(target_code, value_code, vinfo.get("element_type"))}({elem_type}) "*" (({high} - {low}) "+" 1)))'
                 return f'{self._call_memcpy(target_code, value_code)} (({high} - {low}) "+" 1))'
         if target_expr.get("type") == 'ArrayAccess':
             var = self._lookup_symbol(target_expr.get("array"), sym_table=sym_table)
             # Аналогично, проверяем наличие информации о типе.
             vinfo = var.get("info") if var.get("info") is not None else var
-            if vinfo.get("element_type") not in ['integer', "string"]:
+            if vinfo.get("element_type") not in ['integer', "string", "char"]:
                 return f'({self._call_memcpy(target_code, value_code, vinfo.get("element_type"))}))'
         return f"({target_code} \"=\" {value_code})"
 
@@ -342,6 +342,8 @@ class Translator:
             return self._translate_integer(expr)
         elif etype == "String":
             return self._translate_string(expr)
+        elif etype == "Char":
+            return self._translate_char(expr)
         elif etype == "Variable":
             return self._translate_variable(expr, lvalue, sym_table)
         elif etype in ("BinaryOperation", "BinaryExpression"):
@@ -362,6 +364,9 @@ class Translator:
             return "1" if val else "0"
         return str(val)
 
+    def _translate_char(self, expr):
+        # Возвращаем ASCII код символа
+        return str(expr.get('value'))
     def _translate_string(self, expr):
         return f"\"{expr.get('value')}\""
 
@@ -459,7 +464,7 @@ class Translator:
 
         if lvalue:
             # В lvalue-контексте просто формируем адрес элемента
-            if element_type == 'integer':
+            if element_type in ['integer', 'char']:
                 return f'({base} "+" (({index_code} "-" {low})))'
             elif element_type != 'string':
                 return f'({base} "+" (({index_code} "-" {low}) "*" {element_type}))'
@@ -468,7 +473,7 @@ class Translator:
         else:
             # В rvalue-контексте сначала формируем lvalue-выражение для элемента,
             # а затем оборачиваем его в _load для извлечения значения
-            if element_type == 'integer':
+            if element_type in ['integer', 'char']:
                 temp = f'({base} + (({index_code} "-" {low})))'
                 return f'({self._load(temp)})'
             elif element_type != 'string':

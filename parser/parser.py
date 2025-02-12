@@ -270,6 +270,9 @@ class Parser:
         elif self.match(TokenType.STRING):
             return self.consume(TokenType.STRING)
 
+        elif self.match(TokenType.STRING):
+            return self.consume(TokenType.STRING)
+
         elif self.match(TokenType.LPAREN):
             # Посмотрим, что за конструкция внутри скобок:
             #   - Если после '(' сразу IDENTIFIER + ':' -> record
@@ -848,6 +851,9 @@ class Parser:
             val = self.consume(TokenType.STRING)
             return FactorNode(value=val)
 
+        elif self.match(TokenType.CHAR):
+            val = self.consume(TokenType.CHAR)
+            return FactorNode(value=val)
         # (3) идентификатор => переменная, массив, или вызов функции
         elif self.match(TokenType.IDENTIFIER):
             ident = self.consume(TokenType.IDENTIFIER)

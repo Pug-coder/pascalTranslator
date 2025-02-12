@@ -61,6 +61,7 @@ class TokenType(Enum):
     RBRACKET = auto()
 
     STRING = auto()
+    CHAR = auto()
     NUMBER = auto()
     IDENTIFIER = auto()
 
