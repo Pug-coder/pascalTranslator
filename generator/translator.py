@@ -391,14 +391,18 @@ class Translator:
 
         vtype = vinfo.get("type")
         if vtype in ['integer', 'boolean']:
-            return var_name
+            if lvalue:
+                return var_name
+            elif not lvalue:
+                return self._load(var_name)
         if vtype == 'record':
             rec_type = vinfo.get("record_type")
-            tmp = f'({var_name} "*" {rec_type})'
+            #tmp = f'({var_name} "*" {rec_type})'
+
             if lvalue:
-                return f"(call memcpy_ {self._load(tmp)}"
+                return f"(call memcpy_ {var_name}"
             else:
-                return f"({self._load(tmp)} {rec_type}))"
+                return f"{var_name} {rec_type})"
         if vtype == 'array':
             return f'{var_name}'
         return var_name
@@ -415,32 +419,64 @@ class Translator:
         args_code = " ".join(self.translate_expr(arg, lvalue, sym_table) for arg in args)
         return f"({name} {args_code})"
 
+    def _translate_index(self, expr, sym_table=None):
+        """
+        Перевод индексного выражения для массива.
+        Если выражение представляет собой целочисленный литерал, возвращает его.
+        Если выражение – переменная, возвращает (L var_name).
+        Для остальных типов использует стандартный перевод с lvalue=True.
+        """
+        etype = expr.get("type")
+        if etype == "Integer":
+            return self._translate_integer(expr)
+        elif etype == "Variable":
+            # Для индексного выражения переменной всегда оборачиваем в _load
+            # чтобы получить (L var_name)
+            return self._load(expr.get("name"))
+        else:
+            # Для составных выражений используем перевод с lvalue=True
+            return self.translate_expr(expr, lvalue=True, sym_table=sym_table)
     def _translate_array_access(self, expr, lvalue, sym_table=None):
         array_name = expr.get("array")
         arr_info = self._lookup_symbol(array_name, sym_table)
-        element_type = arr_info.get('info').get("element_type")
-        dims = arr_info.get('info').get("dimensions")[0]
+        # Если для массива описана информация через "info", используем её, иначе сам объект
+        info = arr_info.get("info") if arr_info.get("info") is not None else arr_info
+        element_type = info.get("element_type")
+        dims = info.get("dimensions")[0]
         low = dims[0]
         indices = expr.get("indices", [])
         # Предположим, что используется один индекс.
-
-        index_code = self.translate_expr(indices[0], lvalue, sym_table) if indices else "0"
-        if lvalue:
-            if element_type == 'integer':
-                # здесь ошибка, всегда L даже если число
-                return f'({array_name} "+" (({index_code} "-" {low})))'
-            elif element_type != 'string':
-                return f'({array_name} "+" (({self._load(index_code)} "-" {low}) "*" {element_type}))'
-            else:
-                return f'(({array_name} "+" {self._load(index_code)} "-" {low}))'
+        if indices:
+            index_code = self._translate_index(indices[0], sym_table)
         else:
+            index_code = "0"
+
+        # Если массив является параметром, оборачиваем базу в _load
+        if arr_info.get("kind") == "parameter":
+            base = self._load(array_name)
+        else:
+            base = array_name
+
+        if lvalue:
+            # В lvalue-контексте просто формируем адрес элемента
             if element_type == 'integer':
-                temp = f'({array_name} + (({index_code} "-" {low})))'
+                return f'({base} "+" (({index_code} "-" {low})))'
+            elif element_type != 'string':
+                return f'({base} "+" (({index_code} "-" {low}) "*" {element_type}))'
+            else:
+                return f'(({base} "+" {index_code} "-" {low}))'
+        else:
+            # В rvalue-контексте сначала формируем lvalue-выражение для элемента,
+            # а затем оборачиваем его в _load для извлечения значения
+            if element_type == 'integer':
+                temp = f'({base} + (({index_code} "-" {low})))'
                 return f'({self._load(temp)})'
             elif element_type != 'string':
-                return f'({array_name} "+" ((({self._load(index_code)} "-" {low}) "*" {element_type}))'
+                temp = f'({base} + ((({index_code} "-" {low}) "*" {element_type}))'
+                return f'({self._load(temp)})'
             else:
-                return f'(({array_name} "+" ({self._load(index_code)} "-" {low})))'
+                temp = f'({base} + ({index_code} "-" {low}))'
+                return f'({self._load(temp)})'
 
     def _translate_record_field_access(self, expr, lvalue, sym_table=None):
         # Предполагаем, что для обращения к полю записи базовый оператор задаётся как { "name": "p" }
@@ -490,18 +526,19 @@ class Translator:
     # ========================================================
     def translate_block(self, block, indent="", sym_table=None):
         """
-        Перевод блока операторов вида:
-          (block stmt1 stmt2 ...)
+        Перевод блока операторов без дополнительного оборачивания в скобки.
+        Генерируется просто список операторов с отступами.
         """
         if block.get("type") not in ("Block", "block"):
             return self.translate_statement(block, sym_table)
         stmts = block.get("statements", [])
-        lines = [f"{indent}("]
+        if indent is None:
+            indent = ""
+        lines = []
         for stmt in stmts:
             stmt_code = self.translate_statement(stmt, sym_table)
-            lines.append(f"{indent}  {stmt_code}")
-        lines.append(f"{indent})")
-        return "\n".join(lines)
+            lines.append(f"{indent}{stmt_code}")
+        return "\n  ".join(lines)
 
     def translate_for(self, stmt, sym_table=None):
         """
@@ -516,22 +553,43 @@ class Translator:
         body = self.translate_block(stmt.get("body"), indent="  ", sym_table=sym_table)
         return f"(for {loop_var} {start_expr} {direction} {end_expr}\n{body}\n)"
 
+
     def translate_while(self, stmt, sym_table):
         """
         Перевод цикла While.
         """
         condition = self.translate_expr(stmt.get("condition"), sym_table=sym_table)
+        print('body', stmt.get('body'))
         body = self.translate_block(stmt.get("body"), indent="  ", sym_table=sym_table)
-        return f"(while {condition}\n{body}\n)"
+        return f"(while {condition}\n  {body}\n  )"
 
-    def translate_if(self, stmt, sym_table=None):
+    def translate_if(self, stmt, sym_table=None, indent=""):
         """
-        Перевод оператора If.
+        Перевод оператора If согласно грамматике:
+          (if t.BoolExpr e.Code else e.Code)
+        Если ветка else пуста, то она не выводится.
         """
         condition = self.translate_expr(stmt.get("condition"), sym_table=sym_table)
-        then_part = self.translate_block(stmt.get("then"), indent="  ", sym_table=sym_table)
-        if stmt.get("else"):
-            else_part = self.translate_block(stmt.get("else"), indent="  ", sym_table=sym_table)
-            return f"(if {condition}\n  {then_part}\n  {else_part}\n)"
+        # Переводим then-часть с увеличенным отступом
+        then_part = self.translate_block(stmt.get("then"), indent=indent + "  ", sym_table=sym_table)
+
+        # Получаем ветку else
+        else_stmt = stmt.get("else")
+        else_part = ""
+        # Если ветка else существует
+        if else_stmt:
+            # Если это блок, проверяем, содержит ли он непустой список операторов
+            if else_stmt.get("type") in ("Block", "block"):
+                stmts = else_stmt.get("statements", [])
+                if stmts:  # Если список операторов не пустой
+                    else_part = self.translate_block(else_stmt, indent=indent + "  ", sym_table=sym_table)
+            else:
+                # Если это не блок, просто переводим его
+                else_part = self.translate_statement(else_stmt, sym_table)
+
+        # Формируем итоговую строку. Если ветка else не пуста, включаем её
+        if else_part:
+            return f"(if {condition}\n  {indent}{then_part}\n{indent}    else\n  {indent}  {else_part}\n    )"
         else:
-            return f"(if {condition}\n  {then_part}\n)"
+            return f"(if {condition}\n{indent}    {then_part}\n{6*' '})"
+

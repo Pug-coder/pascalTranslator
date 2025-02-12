@@ -810,7 +810,7 @@ class SemanticAnalyzer:
             # Получаем базовое имя массива и список всех индексов
             base_array_name, indices = self.flatten_array_access(node.identifier)
             array_info = self.symbol_table.lookup(base_array_name)
-            print(array_info)
+            print(base_array_name, array_info)
             if not array_info:
                 raise Exception(f"Ошибка: массив '{base_array_name}' не объявлен")
             if array_info.get('info', {}).get('type') != 'array':
@@ -1135,6 +1135,7 @@ class SemanticAnalyzer:
 
         # Если есть ветка else, обрабатываем и её и сохраняем результат в узле
         if node.else_statement:
+            print(node.else_statement)
             self.visit_compound_statement(node.else_statement)
 
         # Генерируем и возвращаем код для оператора IF
@@ -1251,6 +1252,11 @@ class SemanticAnalyzer:
         # Обработка параметров (предполагается, что у каждого параметра есть identifier и param_type)
         if node.parameters:
             for param in node.parameters:
+
+                if isinstance(param.type_node, ArrayTypeNode):
+                    array_info = self.create_array_info(param.type_node, 'var')
+                    param.type_node = 'array'
+
                 proc_info["parameters"].append({
                     "name": param.identifier,
                     "type": param.type_node
@@ -1270,7 +1276,11 @@ class SemanticAnalyzer:
         # Добавляем параметры в локальную таблицу
         if node.parameters:
             for param in node.parameters:
-                local_symbol_table.declare(param.identifier, {"kind": "parameter", "type": param.type_node})
+                if param.type_node == 'array':
+                    local_symbol_table.declare(param.identifier, {"kind": "parameter", "info": array_info})
+                else:
+                    local_symbol_table.declare(param.identifier, {"kind": "parameter", "type": param.type_node})
+
 
         # Переключаемся на локальные объекты
         self.symbol_table = local_symbol_table
