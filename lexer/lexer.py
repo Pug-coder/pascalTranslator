@@ -51,7 +51,7 @@ class Lexer:
             return Token(TokenType.FALSE, value, self.line, start_column)
 
         # Обработка других ключевых слов или идентификаторов
-        if value.lower() in ['number', 'string']:
+        if value.lower() in ['number', 'string', 'char']:
             type_ = TokenType.IDENTIFIER
         else:
             type_ = TokenType[value.upper()] if value.upper() in TokenType.__members__ else TokenType.IDENTIFIER
@@ -91,6 +91,29 @@ class Lexer:
 
 
         return Token(TokenType.STRING, string_value, self.line, start_column)
+
+    def read_char(self):
+        """Читает символьный литерал, заключенный в одинарные кавычки."""
+        start_pos = self.current_pos
+        start_column = self.column
+
+        # Пропускаем начальную кавычку
+        self.next_char()
+
+        if self.current_pos >= len(self.text):
+            raise ValueError(f"Unterminated char literal at line {self.line}, column {self.column}")
+
+        char = self.next_char()
+
+        # Проверяем длину символьного литерала
+        if self.current_pos >= len(self.text) or self.text[self.current_pos] != "'":
+            raise ValueError(
+                f"Invalid char literal at line {self.line}, column {start_column}. Char literal must contain exactly one character")
+
+        # Пропускаем закрывающую кавычку
+        self.next_char()
+
+        return Token(TokenType.CHAR, char, self.line, start_column)
 
     def read_number(self):
         """Читает число."""
@@ -179,6 +202,10 @@ class Lexer:
             # Если строка
             if char == '"':
                 tokens.append(self.read_string())
+                continue
+
+            if char == "'":
+                tokens.append(self.read_char())
                 continue
 
             # Если число

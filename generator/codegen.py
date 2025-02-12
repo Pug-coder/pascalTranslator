@@ -101,7 +101,10 @@ class CodeGenerator:
 
         if isinstance(node.value, int):
             return {"type": "Integer", "value": node.value}
-
+        if isinstance(node.value, str):
+            if len(node.value) == 1:  # Если строка длины 1 - это char
+                return {"type": "Char", "value": ord(node.value)}  # Преобразуем в ASCII код
+            return {"type": "String", "value": node.value}
         if isinstance(node.value, str):
             return {"type": "String", "value": node.value}
 
