@@ -341,7 +341,8 @@ class SemanticAnalyzer:
         type_checks = {
             "integer": int,
             "string": str,
-            "boolean": bool
+            "boolean": bool,
+            "char": str,
         }
 
         const_type = value[0]
@@ -350,10 +351,20 @@ class SemanticAnalyzer:
         if const_type in type_checks:
             expected_type = type_checks[const_type]
             if isinstance(const_value, expected_type):
-                info = {
-                    "type": const_type,
-                    "value": const_value,
-                }
+                if const_type == "char":
+                    # Для типа char ожидается строка длиной 1, преобразуем её в ASCII-код
+                    if len(const_value) != 1:
+                        raise Exception("Значение для типа char должно быть одиночным символом")
+                    ascii_code = ord(const_value)
+                    info = {
+                        "type": const_type,
+                        "value": ascii_code,
+                    }
+                else:
+                    info = {
+                        "type": const_type,
+                        "value": const_value,
+                    }
                 return info
             else:
                 raise Exception(f"Value is not {const_type.capitalize()}")

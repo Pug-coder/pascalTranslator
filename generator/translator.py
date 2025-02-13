@@ -128,11 +128,12 @@ class Translator:
         return f"({ttype} {name} (array {element_type} {size}))"
 
     def translate_constant(self, name, info):
-        """
-        Обрабатывает константное объявление.
-        Если это запись, генерируется блочное копирование полей.
-        """
         inner = info.get("info", {})
+        print('inner', info)
+        # Если inner не является словарём, трактуем его как литеральное значение
+        if not isinstance(inner, dict):
+            return f'(const {name} "=" {inner})'
+
         if inner.get("type") == "record":
             record_type = inner.get("record_type")
             fields = inner.get("fields", {})

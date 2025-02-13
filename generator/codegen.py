@@ -132,38 +132,6 @@ class CodeGenerator:
              }
           }
 
-        Для примера, если исходный for-цикл имеет вид (для направления "downto"):
-
-          for number := ... downto 0 do
-            <тело цикла>
-
-        то генерируется:
-
-          {
-            "type": "While",
-            "condition": {
-                "type": "BinaryExpression",
-                "operator": "<>",
-                "left": {"type": "Variable", "name": "number"},
-                "right": self.generate(node.end_expr)  # например, {"type": "Integer", "value": 0}
-            },
-            "body": {
-                "type": "Block",
-                "statements": [
-                   self.generate(node.body),
-                   {
-                     "type": "Assignment",
-                     "target": {"type": "Variable", "name": "number"},
-                     "value": {
-                        "type": "BinaryOperation",
-                        "operator": "-",
-                        "left": {"type": "Variable", "name": "number"},
-                        "right": {"type": "Integer", "value": 1}
-                     }
-                   }
-                ]
-            }
-          }
 
         Аналогично можно поступить для for-цикла с направлением "to" (тогда вместо "-" используется "+").
         Обратите внимание, что инициализация переменной цикла (например, number := <начальное значение>)

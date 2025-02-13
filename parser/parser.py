@@ -272,7 +272,8 @@ class Parser:
 
         elif self.match(TokenType.STRING):
             return self.consume(TokenType.STRING)
-
+        elif self.match(TokenType.CHAR):
+            return self.consume(TokenType.CHAR)
         elif self.match(TokenType.LPAREN):
             # Посмотрим, что за конструкция внутри скобок:
             #   - Если после '(' сразу IDENTIFIER + ':' -> record
@@ -304,7 +305,7 @@ class Parser:
                 # Парсим список значений
                 self.consume(TokenType.LPAREN)
                 values = []
-                while self.match(TokenType.NUMBER) or self.match(TokenType.STRING) or self.match(TokenType.LPAREN):
+                while self.match(TokenType.NUMBER) or self.match(TokenType.STRING) or self.match(TokenType.CHAR) or self.match(TokenType.LPAREN):
                     # Позволим вложенные скобки (на случай, если внутри массива лежит record)
                     values.append(self.parse_const_value())
 
