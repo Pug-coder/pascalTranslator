@@ -475,13 +475,13 @@ class Translator:
             # В rvalue-контексте сначала формируем lvalue-выражение для элемента,
             # а затем оборачиваем его в _load для извлечения значения
             if element_type in ['integer', 'char']:
-                temp = f'({base} + (({index_code} "-" {low})))'
+                temp = f'({base} "+" (({index_code} "-" {low})))'
                 return f'({self._load(temp)})'
             elif element_type != 'string':
-                temp = f'({base} + ((({index_code} "-" {low}) "*" {element_type}))'
+                temp = f'({base} "+" ((({index_code} "-" {low}) "*" {element_type}))'
                 return f'({self._load(temp)})'
             else:
-                temp = f'({base} + ({index_code} "-" {low}))'
+                temp = f'({base} "+" ({index_code} "-" {low}))'
                 return f'({self._load(temp)})'
 
     def _translate_record_field_access(self, expr, lvalue, sym_table=None):
