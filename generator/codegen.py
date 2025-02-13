@@ -112,35 +112,55 @@ class CodeGenerator:
 
     def generate_for_statement(self, node: ForStatementNode):
         """
-        Преобразует оператор FOR в эквивалентный оператор WHILE.
-
-        Итоговая структура будет такой же, как у generate_while_statement:
-          {
-             "type": "While",
-             "condition": {
-                 "type": "BinaryExpression",
-                 "operator": "<>",
-                 "left": {"type": "Variable", "name": <loop variable>},
-                 "right": <конечное значение>
-             },
-             "body": {
-                 "type": "Block",
-                 "statements": [
-                     <код тела цикла>,
-                     <оператор обновления переменной>
-                 ]
-             }
+        Преобразует for-цикл вида:
+          for j := i + 1 to n do <body>
+        в эквивалентный код с предварительной инициализацией переменной цикла,
+        циклом while и оператором обновления.
+        Итоговая структура:
+          Block {
+              statements: [
+                  <инициализация: j := i + 1>,
+                  While {
+                      condition: (j <= n)  (или j >= n для downto),
+                      body: Block {
+                          statements: [
+                              <тело цикла>,
+                              <обновление: j := j + 1>  (или j := j - 1 для downto)
+                          ]
+                      }
+                  }
+              ]
           }
-
-
-        Аналогично можно поступить для for-цикла с направлением "to" (тогда вместо "-" используется "+").
-        Обратите внимание, что инициализация переменной цикла (например, number := <начальное значение>)
-        должна выполняться отдельно (например, в составе внешнего CompoundStatement).
         """
-        if node.direction.lower() == "downto":
+        # 1. Инициализация переменной цикла: j := i + 1
+        init_assignment = {
+            "type": "Assignment",
+            "target": {"type": "Variable", "name": node.identifier},  # j
+            "value": self.generate(node.start_expr)  # генерирует выражение i + 1
+        }
+
+        # 2. В зависимости от направления цикла формируем условие и оператор обновления
+        if node.direction.lower() == "to":
             condition = {
                 "type": "BinaryExpression",
-                "operator": "<>",
+                "operator": "<=",
+                "left": {"type": "Variable", "name": node.identifier},  # j
+                "right": self.generate(node.end_expr)  # генерирует n
+            }
+            update = {
+                "type": "Assignment",
+                "target": {"type": "Variable", "name": node.identifier},  # j
+                "value": {
+                    "type": "BinaryOperation",
+                    "operator": "+",
+                    "left": {"type": "Variable", "name": node.identifier},  # j
+                    "right": {"type": "Integer", "value": 1}  # + 1
+                }
+            }
+        elif node.direction.lower() == "downto":
+            condition = {
+                "type": "BinaryExpression",
+                "operator": ">=",
                 "left": {"type": "Variable", "name": node.identifier},
                 "right": self.generate(node.end_expr)
             }
@@ -154,27 +174,13 @@ class CodeGenerator:
                     "right": {"type": "Integer", "value": 1}
                 }
             }
-        elif node.direction.lower() == "to":
-            condition = {
-                "type": "BinaryExpression",
-                "operator": "<>",
-                "left": {"type": "Variable", "name": node.identifier},
-                "right": self.generate(node.end_expr)
-            }
-            update = {
-                "type": "Assignment",
-                "target": {"type": "Variable", "name": node.identifier},
-                "value": {
-                    "type": "BinaryOperation",
-                    "operator": "+",
-                    "left": {"type": "Variable", "name": node.identifier},
-                    "right": {"type": "Integer", "value": 1}
-                }
-            }
         else:
             raise Exception(f"Неподдерживаемое направление цикла: {node.direction}")
 
-        return {
+        # 3. Генерируем цикл while, тело которого состоит из:
+        #    - тела исходного for-цикла
+        #    - оператора обновления переменной цикла
+        while_node = {
             "type": "While",
             "condition": condition,
             "body": {
@@ -184,6 +190,15 @@ class CodeGenerator:
                     update
                 ]
             }
+        }
+
+        # 4. Возвращаем блок (Block), содержащий сначала инициализацию, затем цикл while
+        return {
+            "type": "Block",
+            "statements": [
+                init_assignment,
+                while_node
+            ]
         }
 
     def generate_while_statement(self, node: WhileStatementNode):
