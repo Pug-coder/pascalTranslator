@@ -1,12 +1,17 @@
 from lexer.token_type import TokenType
 from lexer.token import Token
+from custom_exceptions.parse_error import ParseError
 from .ast_node import *
 
 
 class Parser:
     def __init__(self, tokens):
-        self.tokens = tokens  # Список токенов
-        self.pos = 0  # Позиция текущего токена
+        self.tokens = tokens
+        self.pos = 0
+
+    def raise_error(self, message):
+        token = self.current_token()
+        raise ParseError(message, token.line, token.column)
 
     def save_position(self):
         return self.pos
@@ -19,7 +24,6 @@ class Parser:
         index = self.pos + offset
         if index < len(self.tokens):
             return self.tokens[index]
-        # Если вышли за границы, возвращаем фиктивный токен EOF
         return Token(TokenType.EOF, None, -1, -1)
 
     def current_token(self):
@@ -32,16 +36,14 @@ class Parser:
         """Потребляет текущий токен, если тип совпадает, и двигается дальше."""
         token = self.current_token()
         if token.type_ != expected_type:
-            raise SyntaxError(
-                f"Expected {expected_type}, but got {token.type_} at line {token.line}, col {token.column}")
-        self.pos += 1 # возможно придется поменять порядок
+            self.raise_error(f"Ожидался токен {expected_type}, но получен {token.type_}")
+        self.pos += 1
         value = token.value
 
         if expected_type == TokenType.NUMBER:
             if not value.isnumeric():
-                raise ValueError(f"Expected numeric value, but got '{value}' at line {token.line}, col {token.column}")
-            value = int(value)
-            return value
+                self.raise_error(f"Ожидалось числовое значение, но получено '{value}'")
+            return int(value)
         elif expected_type == TokenType.STRING:
             return value
         else:
@@ -53,10 +55,7 @@ class Parser:
 
     def parse_program(self):
         """Program -> 'program' IDENTIFIER ';' Block '.'"""
-        # По классической грамматике Паскаля сначала должно идти ключевое слово PROGRAM
-        # Но в вашем коде не было этого. Предположим, что вы хотите это поддержать:
-        # self.consume(TokenType.PROGRAM)  # если хотите строго по грамматике
-        self.consume(TokenType.IDENTIFIER) # program type?
+        self.consume(TokenType.IDENTIFIER)
         program_name = self.consume(TokenType.IDENTIFIER)
         self.consume(TokenType.SEMICOLON)
         block = self.parse_block()
@@ -107,7 +106,7 @@ class Parser:
         self.consume(TokenType.OF)
 
         if not self.match(TokenType.IDENTIFIER):
-            raise SyntaxError("Expected type identifier after 'of'")
+            self.raise_error("Ожидался идентификатор типа после ключевого слова 'of'")
 
         element_type = self.consume(TokenType.IDENTIFIER)
 
@@ -169,40 +168,27 @@ class Parser:
                 if self.match(TokenType.ARRAY):
                     declared_type = self.parse_array_declaration(allow_initialization=True)
                 else:
-                    # Предположим, что тип может быть либо IDENTIFIER (например, integer),
-                    # либо STRING (если ваш лексер токенизирует ключевое слово 'string' как TokenType.STRING).
+
                     if self.match(TokenType.IDENTIFIER):
                         declared_type = self.consume(TokenType.IDENTIFIER)
                     elif self.match(TokenType.STRING):
                         declared_type = self.consume(TokenType.STRING)
                     else:
-                        raise SyntaxError(
-                            f"Expected a type (IDENTIFIER or STRING) after ':' "
-                            f"at line {self.current_token().line}, col {self.current_token().column}"
-                        )
+                        self.raise_error(f"Ожидался тип (IDENTIFIER или STRING) после ':' (строка {self.current_token().line}, позиция {self.current_token().column})")
                     if is_const:
                         if not self.match(TokenType.EQ):
-                            raise SyntaxError(
-                                f"Expected '=' after identifier(s) {identifiers} "
-                                f"at line {self.current_token().line}, col {self.current_token().column}"
-                            )
+                            self.raise_error( f"Ожидался знак '=' после идентификатора(ов) {identifiers} (строка {self.current_token().line}, позиция {self.current_token().column})")
 
                 # Может быть инициализация через '='
                 if self.match(TokenType.EQ):
                     self.consume(TokenType.EQ)
                     const_value = self.parse_const_value()
-                    # parse_const_value может парсить NUMBER, STRING или массив в скобках (...)
 
             else:
-                raise SyntaxError(
-                    f"Expected ':' or '=' after identifier(s) {identifiers} "
-                    f"at line {self.current_token().line}, col {self.current_token().column}"
-                )
+                self.raise_error(f"Ожидался символ ':' или '=' после идентификатора(ов) {identifiers} (строка {self.current_token().line}, позиция {self.current_token().column})")
 
-            # В конце каждого объявления должно быть ';'
             self.consume(TokenType.SEMICOLON)
 
-            # Теперь создаём ConstDeclarationNode на каждый идентификатор в группе
             for ident in identifiers:
                 if is_const:
                     declarations.append(
@@ -245,7 +231,6 @@ class Parser:
                 # и продолжаем цикл, если не встретили `)`
                 continue
             elif self.match(TokenType.COMMA):
-                # Если вдруг вы хотите поддержать запятые вместо `;`
                 self.consume(TokenType.COMMA)
                 continue
             else:
@@ -317,10 +302,7 @@ class Parser:
                 return values
 
         else:
-            raise SyntaxError(
-                f"Expected NUMBER, STRING, or '(...)' after '=' in const declaration "
-                f"at line {self.current_token().line}, col {self.current_token().column}"
-            )
+            self.raise_error(f"Ожидалось число, символ или конструкция '(...)' после '=' (строка {self.current_token().line}, позиция {self.current_token().column})")
 
     def parse_var_declaration(self):
         """
@@ -353,10 +335,7 @@ class Parser:
                 elif self.match(TokenType.STRING):
                     declared_type = self.consume(TokenType.STRING)
                 else:
-                    raise SyntaxError(
-                        f"Expected a type (IDENTIFIER or STRING) after ':' "
-                        f"at line {self.current_token().line}, col {self.current_token().column}"
-                    )
+                    self.raise_error(f"Ожидался тип (IDENTIFIER или Char) после ':' (строка {self.current_token().line}, позиция {self.current_token().column})")
 
             # Опциональная инициализация: = ...
             init_value = None
@@ -405,23 +384,11 @@ class Parser:
         elif self.match(TokenType.STRING):
             return self.consume(TokenType.STRING)
         else:
-            raise SyntaxError(
-                f"Expected '(' or NUMBER or STRING after '=' in var declaration "
-                f"at line {self.current_token().line}, col {self.current_token().column}"
-            )
+            self.raise_error(f"Ожидалось '(' или число или строка после '=' в объявлении переменной (строка {self.current_token().line}, позиция {self.current_token().column})")
 
     def parse_type_section(self):
         """
             TypeSection = "TYPE" { TypeDeclaration ";" }
-
-            Пример:
-              type
-                TPerson = record
-                  name: string;
-                  age: integer;
-                end;
-
-                TIntArray = array [1..10] of integer;
             """
         type_declarations = []
         self.consume(TokenType.TYPE)
@@ -434,12 +401,8 @@ class Parser:
     def parse_type_declaration(self):
         """
         TypeDeclaration = IDENTIFIER "=" Type ";"
-
-        Пример:
-          TPerson = record ... end
-          TIntArray = array [1..10] of integer
         """
-        name = self.consume(TokenType.IDENTIFIER)  # например, 'TPerson'
+        name = self.consume(TokenType.IDENTIFIER)
         self.consume(TokenType.EQ)
 
         the_type = self.parse_type()
@@ -455,14 +418,12 @@ class Parser:
            - простой тип (например, integer, string, и т.п. — через IDENTIFIER)
            - массив (array [lower..upper] of <type>)
 
-        Если хотите поддержать вложенные массивы, рекурсия в parse_type тоже сработает.
         """
         if self.match(TokenType.ARRAY):
             return self.parse_array_declaration()
         elif self.match(TokenType.RECORD):
             return self.parse_record_type()
         elif self.match(TokenType.IDENTIFIER):
-            # Предположим, что это простой тип, т.е. IDENTIFIER (integer, string, real, и т.д.)
             type_name = self.consume(TokenType.IDENTIFIER)
             return TypeNode(identifier_type=type_name)
         elif self.match(TokenType.STRING):
@@ -477,12 +438,10 @@ class Parser:
         """
         kind_token = self.current_token()
         if kind_token.type_ not in [TokenType.PROCEDURE, TokenType.FUNCTION]:
-            raise SyntaxError(
-                f"Expected PROCEDURE or FUNCTION at line {kind_token.line}, col {kind_token.column}"
-            )
+            self.raise_error( f"Ожидалось ключевое слово PROCEDURE или FUNCTION (строка {kind_token.line}, позиция {kind_token.column})")
 
         # Считываем "PROCEDURE" или "FUNCTION"
-        kind = self.consume(kind_token.type_)  # либо 'PROCEDURE', либо 'FUNCTION'
+        kind = self.consume(kind_token.type_)
         ident = self.consume(TokenType.IDENTIFIER)
 
         parameters = []
@@ -498,10 +457,7 @@ class Parser:
                 self.consume(TokenType.COLON)
                 return_type = self.parse_type()
             else:
-                raise SyntaxError(
-                    f"Expected ':' and return type after FUNCTION {ident} "
-                    f"at line {self.current_token().line}, col {self.current_token().column}"
-                )
+                self.raise_error( f"Ожидалось ':' и тип возвращаемого значения после FUNCTION {ident} (строка {self.current_token().line}, позиция {self.current_token().column})")
 
         self.consume(TokenType.SEMICOLON)
 
@@ -625,10 +581,7 @@ class Parser:
                 return self.parse_procedure_call()
 
         else:
-            raise SyntaxError(
-                f"Unexpected token {self.current_token().type_} at line "
-                f"{self.current_token().line}, col {self.current_token().column}"
-            )
+            self.raise_error(f"Токен {self.current_token().type_} не ожидается в этом месте (строка {self.current_token().line}, позиция {self.current_token().column})")
 
     def parse_assign_statement(self):
         """
@@ -647,8 +600,6 @@ class Parser:
         """
         Считывает либо один идентификатор,
         либо идентификатор со скобками для массива: arr[i], arr[i+1], ...
-        Если хотите поддержать многомерные массивы (arr[i,j]),
-        придётся распарсить список выражений внутри скобок.
         """
         base_ident = self.consume(TokenType.IDENTIFIER)
 
@@ -683,12 +634,8 @@ class Parser:
         self.consume(TokenType.RECORD)
 
         fields = []
-        # Пока не встретили 'END', читаем поля
         while not self.match(TokenType.END):
             # Парсим одну группу полей
-            #  например: name, surname: string;
-            #  или: x, y: integer;
-
             # Сначала считываем список идентификаторов
             identifiers = [self.consume(TokenType.IDENTIFIER)]
             while self.match(TokenType.COMMA):
@@ -707,14 +654,10 @@ class Parser:
                 if self.match(TokenType.END):
                     break
                 else:
-                    raise SyntaxError(
-                        f"Expected ';' or 'END' after record field declaration, got {self.current_token().type_} "
-                        f"at line {self.current_token().line}, col {self.current_token().column}"
-                    )
+                    self.raise_error( f"Ожидался символ ';' или 'END' после объявления поля записи, получен токен {self.current_token().type_} (строка {self.current_token().line}, позиция {self.current_token().column})")
 
         self.consume(TokenType.END)
 
-        # Создаём и возвращаем RecordTypeNode
         return RecordTypeNode(fields=fields)
 
     def parse_if_statement(self):
@@ -746,15 +689,12 @@ class Parser:
         if self.match(TokenType.TO):
             direction = self.consume(TokenType.TO)
         elif self.match(TokenType.IDENTIFIER) and self.current_token().value.upper() == 'DOWNTO':
-            # Допустим вы не добавили DOWNTO как токен, тогда нужна проверка по value
-            # или добавьте DOWNTO в TokenType
-            # Если DOWNTO есть в TokenType, можно использовать:
-            # direction = self.consume(TokenType.DOWNTO)
+            # DOWNTo перестал отслеживаться, но изначально думал над этим
             direction = self.consume(TokenType.IDENTIFIER)
             if direction.upper() != 'DOWNTO':
-                raise SyntaxError("Expected TO or DOWNTO in for statement.")
+                self.raise_error("Ожидалось ключевое слово TO в цикле FOR")
         else:
-            raise SyntaxError("Expected TO or DOWNTO in for statement.")
+            self.raise_error("Ожидалось ключевое слово TO в цикле FOR")
 
         end_expr = self.parse_expression()
         self.consume(TokenType.DO)
@@ -800,8 +740,6 @@ class Parser:
 
     def parse_expression(self):
         """Expression = SimpleExpression [ RelationalOperator SimpleExpression ]"""
-        # Для простоты предположим, что parse_simple_expression уже есть
-        # или мы пишем его сейчас
         left = self.parse_simple_expression()
         if self.match(TokenType.EQ) or self.match(TokenType.NEQ) or self.match(TokenType.LT) or \
                 self.match(TokenType.GT) or self.match(TokenType.LTE) or self.match(TokenType.GTE):
@@ -821,10 +759,6 @@ class Parser:
             op = self.current_token().value
             self.pos += 1
             right = self.parse_factor()
-            # В отличие от ранее показанного кода, SimpleExpressionNode мы
-            # можем построить как цепочку или сделать сразу список термов и операторов.
-            # Для упрощения сейчас просто вернём новый SimpleExpressionNode
-            # Но лучше собирать в список.
             left = SimpleExpressionNode(terms=[left, op, right], additive_operator=op)
         return left
 
@@ -898,14 +832,10 @@ class Parser:
             self.consume(TokenType.RPAREN)
             return FactorNode(sub_expression=inner_expr)
 
-        # (6) NOT factor
         elif self.match(TokenType.NOT):
             self.consume(TokenType.NOT)
             factor = self.parse_factor()
             return FactorNode(sub_expression=factor, is_not=True)
 
         else:
-            raise SyntaxError(
-                f"Unexpected token {self.current_token().type_} "
-                f"at line {self.current_token().line}, col {self.current_token().column}"
-            )
+            self.raise_error(f"Неожиданный токен {self.current_token().type_} (строка {self.current_token().line}, позиция {self.current_token().column})")

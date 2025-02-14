@@ -2,12 +2,21 @@ program TestDecl;
 
 type
 Point = record x, y: integer end;
-Line = record start, endd: Point end;
-
-
+procedure DoSomething(var number: integer; var arr2: array[5..7] of integer);
+var x: integer;
+begin
+    x := 5;
+    while number <> 0 do
+    begin
+    arr2[6] := arr2[7] + 1;
+       number := number - 1;
+    end;
+end;
+const
+    y1: integer= 2;
+    ch1: char = 'w';
 var
 a : array[5..10] of Point;
-l : array[1..3] of Line;
 b, c, niz : array[5..10] of integer;
 ch: char;
 arch: array[5..10] of char;

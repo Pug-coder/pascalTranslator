@@ -1,6 +1,7 @@
 import json
 import re
 
+from custom_exceptions.semantic_error import SemanticError
 from semantic.symbol_table import SymbolTable
 from parser.ast_node import *
 from generator.codegen import CodeGenerator
@@ -15,7 +16,9 @@ class SemanticAnalyzer:
     def __init__(self):
         self.symbol_table = SymbolTable()
         self.code_generator = CodeGenerator()
-
+    
+    def raise_error(self, message):
+        raise SemanticError(message)
     def visit_program(self, node: ProgramNode):
         self.visit_block(node.children[0])
 
@@ -60,14 +63,14 @@ class SemanticAnalyzer:
                 if isinstance(values, (RecordInitializerNode, dict)):
                     record_type = self.symbol_table.lookup(node.element_type)
                     if not record_type:
-                        raise Exception(f"Record type '{node.element_type}' not found in symbol table")
+                        self.raise_error(f"Тип записи '{node.element_type}' не найден в таблице символов")
                     self.validate_record_initializer(record_type, values)
                     return 1
                 # Если список содержит только инициализаторы записей (RecordInitializerNode или dict)
                 elif isinstance(values, list) and all(isinstance(v, (RecordInitializerNode, dict)) for v in values):
                     record_type = self.symbol_table.lookup(node.element_type)
                     if not record_type:
-                        raise Exception(f"Record type '{node.element_type}' not found in symbol table")
+                        self.raise_error(f"Тип записи '{node.element_type}' не найден в таблице символов")
                     for record_instance in values:
                         self.validate_record_initializer(record_type, record_instance)
                     return len(values)
@@ -76,16 +79,16 @@ class SemanticAnalyzer:
                 if expected_type:
                     if isinstance(values, list):
                         if not all(isinstance(value, expected_type) for value in values):
-                            raise ValueError(f"Expected elements of type {expected_type} at level {level}")
+                            self.raise_error(f"На уровне {level} ожидались элементы типа {expected_type.__name__}, получены значения другого типа")
                         return len(values)
                     else:
                         if isinstance(values, expected_type):
                             return 1
                         else:
-                            raise ValueError(
-                                f"Expected element of type {expected_type} at level {level}, but got {type(values)}")
+                            self.raise_error(
+                                f"На уровне {level} ожидался элемент типа {expected_type.__name__}, но получен тип {type(values).__name__}")
                 # Если ни базовый тип, ни запись найдены – ошибка
-                raise Exception(f"Invalid initializer for type '{node.element_type}'")
+                self.raise_error(f"Неверный инициализатор для типа '{node.element_type}'")
 
             # Рекурсивно обрабатываем вложенные списки
             dim_lower, dim_upper = dimensions[level]
@@ -93,13 +96,13 @@ class SemanticAnalyzer:
 
             if isinstance(values, list):
                 if len(values) != expected_size:
-                    raise ValueError(f"At level {level}, expected {expected_size} elements, got {len(values)}")
+                    self.raise_error(f"На уровне {level} ожидалось {expected_size} элементов, получено {len(values)}")
                 total_size = 0
                 for sub_values in values:
                     total_size += check_array_size_and_types(dimensions, sub_values, level + 1)
                 return total_size
             else:
-                raise ValueError(f"Expected list of values at level {level}, but got {type(values)}")
+                self.raise_error( f"На уровне {level} ожидался список значений, получен тип {type(values).__name__}")
 
         # Вычисляем общий размер массива по измерениям
         size = 1
@@ -109,11 +112,11 @@ class SemanticAnalyzer:
 
         if declaration_place == 'const':
             if node.initial_values is None:
-                raise ValueError(f'{declaration_place} declaration array cannot be empty, enter values')
+                self.raise_error("В константном объявлении массива не заданы начальные значения")
 
             total_elements = check_array_size_and_types(node.dimensions, node.initial_values)
             if total_elements != size:
-                raise ValueError(f'Array size is incorrect. Expected {size} elements, got {total_elements}')
+                self.raise_error(f"Неверный размер массива. Ожидалось {size} элементов, получено {total_elements}")
             else:
                 arr_info = {
                     "type": "array",
@@ -148,7 +151,7 @@ class SemanticAnalyzer:
             if node.initial_values is not None:
                 total_elements = check_array_size_and_types(node.dimensions, node.initial_values)
                 if total_elements != size:
-                    raise ValueError(f'Array size is incorrect. Expected {size} elements, got {total_elements}')
+                    self.raise_error(f"Неверный размер массива. Ожидалось {size} элементов, получено {total_elements}")
             return arr_info
 
         return None
@@ -166,7 +169,7 @@ class SemanticAnalyzer:
             elif isinstance(values, list):
                 return [self.validate_record_initializer(record_type_info, v) for v in values]
             else:
-                raise Exception(f"Unexpected value type {type(values)} at record array base level")
+                self.raise_error(f"Неверный тип значения {type(values).__name__} на базовом уровне массива записей")
         return [
             self.transform_record_array_values(sub_value, dimensions, record_type_info, level + 1)
             for sub_value in values
@@ -190,7 +193,7 @@ class SemanticAnalyzer:
                         fields.append(field_info)
                     else:
                         # если не в symbol_table, значит не запись
-                        raise Exception(f'Wrong type {field.identifier_type} in field {field_name}')
+                        self.raise_error(f'Неверный тип {field.identifier_type} в поле {field_name}')
 
                 elif isinstance(field, ArrayTypeNode):
                     arr_info = self.create_array_info(field, "record")
@@ -223,7 +226,7 @@ class SemanticAnalyzer:
         # Получаем список информации о полях из record_type_info
         fields_info = record_type_info.get("fields_info")
         if not fields_info:
-            raise Exception(f"Record type '{record_type_info.get('name')}' has no fields information")
+            self.raise_error(f"Запись '{record_type_info.get('name')}' не содержит информации о полях")
 
         type_checks = {
             "integer": int,
@@ -238,8 +241,8 @@ class SemanticAnalyzer:
             initializer_fields = initializer.fields
 
             if len(fields_info) != len(initializer_fields):
-                raise Exception(
-                    f"Record initializer has incorrect number of fields for type '{record_type_info.get('name')}'"
+                self.raise_error(
+                    f"Инициализатор записи имеет неверное количество полей для типа '{record_type_info.get('name')}'"
                 )
 
             for field_info, (init_name, init_value) in zip(fields_info, initializer_fields):
@@ -248,20 +251,20 @@ class SemanticAnalyzer:
 
                 # Проверяем совпадение имён полей
                 if expected_name != init_name:
-                    raise Exception(f"Field name mismatch: expected '{expected_name}', got '{init_name}'")
+                    self.raise_error(f"Несоответствие имён полей: ожидалось '{expected_name}', получено '{init_name}'")
 
                 # Проверяем тип значения
                 if field_type in type_checks:
                     expected_type = type_checks[field_type]
                     if not isinstance(init_value, expected_type):
-                        raise Exception(
-                            f"Field '{init_name}' expected type '{field_type}', got '{type(init_value).__name__}'"
+                        self.raise_error(
+                            f"Несоответствие имён полей: ожидалось '{expected_name}', получено '{init_name}'"
                         )
                 elif field_type == "array":
                     # Если тип — массив, вызываем функцию обработки массива
                     arr_info = field_info.get("arr_info")
                     if not arr_info:
-                        raise Exception(f"Array field '{init_name}' has no array info")
+                        self.raise_error(f"Array field '{init_name}' has no array info")
                     array_type_node = ArrayTypeNode(
                         element_type=arr_info["element_type"],
                         dimensions=arr_info["dimensions"],
@@ -269,7 +272,7 @@ class SemanticAnalyzer:
                     )
                     self.create_array_info(array_type_node, declaration_place="record")
                 else:
-                    raise Exception(f"Unsupported field type '{field_type}' in record '{record_type_info.get('name')}'")
+                    self.raise_error(f"Неподдерживаемый тип поля '{field_type}' в записи '{record_type_info.get('name')}'")
 
                 validated_fields[init_name] = init_value
 
@@ -277,9 +280,9 @@ class SemanticAnalyzer:
             # Проверяем, что набор ключей в словаре совпадает с ожидаемым набором имён полей
             expected_field_names = {field_info["field_name"] for field_info in fields_info}
             if set(initializer.keys()) != expected_field_names:
-                raise Exception(
-                    f"Record initializer has incorrect set of fields for type '{record_type_info.get('name')}'. "
-                    f"Expected fields: {expected_field_names}, got: {set(initializer.keys())}"
+                self.raise_error(
+                    f"Инициализатор записи имеет неверный набор полей для типа '{record_type_info.get('name')}'. "
+                f"Ожидаемые поля: {expected_field_names}, получены: {set(initializer.keys())}"
                 )
             for field_info in fields_info:
                 field_name = field_info["field_name"]
@@ -289,13 +292,13 @@ class SemanticAnalyzer:
                 if field_type in type_checks:
                     expected_type = type_checks[field_type]
                     if not isinstance(init_value, expected_type):
-                        raise Exception(
-                            f"Field '{field_name}' expected type '{field_type}', got '{type(init_value).__name__}'"
+                        self.raise_error(
+                            f"В поле '{field_name}' ожидался тип '{field_type}', получен тип '{type(init_value).__name__}'"
                         )
                 elif field_type == "array":
                     arr_info = field_info.get("arr_info")
                     if not arr_info:
-                        raise Exception(f"Array field '{field_name}' has no array info")
+                        self.raise_error(f"Поле-массив '{field_name}' не содержит информации о массиве")
                     array_type_node = ArrayTypeNode(
                         element_type=arr_info["element_type"],
                         dimensions=arr_info["dimensions"],
@@ -311,12 +314,12 @@ class SemanticAnalyzer:
                         "fields": validated_fields,
                     }
                 else:
-                    raise Exception(f"Unsupported field type '{field_type}' in record '{record_type_info.get('name')}'")
+                    self.raise_error(f"Неподдерживаемый тип поля '{field_type}' в записи '{record_type_info.get('name')}'")
 
                 validated_fields[field_name] = init_value
 
         else:
-            raise Exception("Record initializer must be a RecordInitializerNode or a dictionary")
+            self.raise_error("Инициализатор записи должен быть объектом RecordInitializerNode или словарём")
 
         # Если все проверки прошли успешно, возвращаем информацию о записи
         return {
@@ -354,7 +357,7 @@ class SemanticAnalyzer:
                 if const_type == "char":
                     # Для типа char ожидается строка длиной 1, преобразуем её в ASCII-код
                     if len(const_value) != 1:
-                        raise Exception("Значение для типа char должно быть одиночным символом")
+                        self.raise_error("Значение для типа char должно быть одиночным символом")
                     ascii_code = ord(const_value)
                     info = {
                         "type": const_type,
@@ -367,7 +370,7 @@ class SemanticAnalyzer:
                     }
                 return info
             else:
-                raise Exception(f"Value is not {const_type.capitalize()}")
+                self.raise_error(f"Значение не является типом {const_type.capitalize()}")
 
         elif isinstance(value[0], ArrayTypeNode):
             info = self.create_array_info(const_type, declaration_place="const")
@@ -380,7 +383,7 @@ class SemanticAnalyzer:
                 # Вызываем отдельную функцию для проверки записи
                 return self.validate_record_initializer(record_type, const_value)
             else:
-                raise Exception(f"Invalid initializer for record type '{const_type}'")
+                self.raise_error(f"Неверный инициализатор для типа записи '{const_type}'")
 
         elif self.symbol_table.lookup(value[0]):
             pass
@@ -418,7 +421,7 @@ class SemanticAnalyzer:
                 if isinstance(init_value, expected_type):
                     return {"type": var_type, "value": init_value}
                 else:
-                    raise Exception(f"Value is not {var_type.capitalize()}")
+                    self.raise_error(f"Значение не является типом {var_type.capitalize()}")
             else:
                 # Значение не задано, проставим дефолт (0 или "")
                 default_val = 0 if expected_type is int else ""
@@ -447,9 +450,8 @@ class SemanticAnalyzer:
                 # Если есть init_value, проверим через validate_record_initializer
                 if init_value is not None:
                     if not isinstance(init_value, RecordInitializerNode):
-                        raise Exception(
-                            f"Expected RecordInitializerNode for record '{var_type}', "
-                            f"got {type(init_value).__name__}."
+                        self.raise_error(
+                            f"Ожидался объект RecordInitializerNode для записи '{var_type}', получен {type(init_value).__name__}"
                         )
                     self.validate_record_initializer(record_type_info, init_value)
                     return {
@@ -468,7 +470,7 @@ class SemanticAnalyzer:
                     }
 
             # 4) Иначе тип неизвестен
-            raise Exception(f"Unsupported variable type: {var_type}")
+            self.raise_error(f"Неподдерживаемый тип переменной: {var_type}")
 
     def create_default_value(self, type_name, extra_info=None):
         """
@@ -496,7 +498,7 @@ class SemanticAnalyzer:
         # 2) Массив
         if type_name == "array":
             if not extra_info:
-                raise Exception("Array type requires extra_info with dimensions and element_type.")
+                self.raise_error("Для типа массива необходимо указать extra_info с измерениями и типом элементов")
             return self.fill_array_with_defaults(
                 dimensions=extra_info["dimensions"],
                 element_type=extra_info["element_type"]
@@ -508,7 +510,7 @@ class SemanticAnalyzer:
             return self.create_default_record_initializer(record_type_info)
 
         # 4) Иначе не знаем, что это
-        raise Exception(f"Unsupported or unknown type: {type_name}")
+        self.raise_error(f"Неподдерживаемый или неизвестный тип: {type_name}")
 
     def fill_array_with_defaults(self, dimensions, element_type, level=0):
         """
@@ -544,13 +546,13 @@ class SemanticAnalyzer:
           }
         """
         if record_type_info.get("type") != "record":
-            raise Exception(
-                f"Type '{record_type_info.get('name')}' is not a record, got '{record_type_info.get('type')}' instead."
+            self.raise_error(
+                f"Тип '{record_type_info.get('name')}' не является записью, получен тип '{record_type_info.get('type')}'"
             )
 
         fields_info = record_type_info.get("fields_info")
         if not fields_info:
-            raise Exception(f"Record '{record_type_info.get('name')}' has no fields info.")
+            self.raise_error(f"Запись '{record_type_info.get('name')}' не содержит информации о полях")
 
         initializer_fields = []
         for field in fields_info:
@@ -560,8 +562,8 @@ class SemanticAnalyzer:
             if field_type == "array":
                 arr_info = field.get("arr_info")
                 if not arr_info:
-                    raise Exception(
-                        f"Field '{field_name}' in record '{record_type_info['name']}' is array but has no arr_info."
+                    self.raise_error(
+                        f"Поле '{field_name}' в записи '{record_type_info['name']}' является массивом, но не содержит информации о массиве (arr_info)"
                     )
                 default_val = self.fill_array_with_defaults(
                     dimensions=arr_info["dimensions"],
@@ -606,7 +608,7 @@ class SemanticAnalyzer:
                 left_type = self.get_expression_type(node.left)
                 right_type = self.get_expression_type(node.right)
                 if left_type != right_type:
-                    raise Exception(
+                    self.raise_error(
                         f"Ошибка типов: {left_type} != {right_type} в сравнении {node.relational_operator}"
                     )
                 # Обходим подвыражения без ожидания конкретного типа.
@@ -615,7 +617,7 @@ class SemanticAnalyzer:
                 result = self.code_generator.generate(node)
                 # Если сверху ожидался не boolean, сообщаем об ошибке.
                 if stmt_type is not None and stmt_type != "boolean":
-                    raise Exception(
+                    self.raise_error(
                         f"Ошибка типов: ожидаемый тип {stmt_type}, но выражение возвращает boolean"
                     )
                 return result
@@ -639,7 +641,7 @@ class SemanticAnalyzer:
         elif isinstance(node, RecordFieldAccessNode):
             return self.visit_record_field_access_node(node)
         else:
-            raise Exception(f"Unsupported node type in visit_expression_node: {type(node)}")
+            self.raise_error(f"Неподдерживаемый тип узла в  visit_expression_node: {type(node)}")
 
     def visit_simple_expr_node(self, node: SimpleExpressionNode, stmt_type):
         """Обход простого выражения (например, a + b)"""
@@ -660,7 +662,7 @@ class SemanticAnalyzer:
                 self.visit_record_field_access_node(term, stmt_type)
             else:
                 print(type(term))
-                raise Exception(f"Некорректный элемент в terms: {term}")
+                self.raise_error(f"Некорректный элемент в terms: {term}")
 
         return self.code_generator.generate(node)
 
@@ -679,7 +681,7 @@ class SemanticAnalyzer:
         elif node.identifier:
             var_info = self.symbol_table.lookup(node.identifier)
             if not var_info:
-                raise Exception(f"Ошибка: переменная {node.identifier} не объявлена")
+                self.raise_error(f"Ошибка: переменная {node.identifier} не объявлена")
             var_type = var_info.get('info', {}).get('type')
             print('inf',var_info)
             if var_info.get('kind') == 'parameter':
@@ -688,11 +690,11 @@ class SemanticAnalyzer:
             # Only check if an expected type was given
             if stmt_type is not None and str(var_type) != str(stmt_type):
                 if var_type != 'record':
-                    raise Exception(f"Ошибка типов: {var_type} != {stmt_type} для {node.identifier}")
+                    self.raise_error(f"Ошибка типов: {var_type} != {stmt_type} для {node.identifier}")
                 elif var_type == 'record':
                     var_type = var_info.get('info', {}).get('record_type')
                     if stmt_type is not None and var_type != stmt_type:
-                        raise Exception(f"Ошибка типов: {var_type} != {stmt_type} для {node.identifier}")
+                        self.raise_error(f"Ошибка типов: {var_type} != {stmt_type} для {node.identifier}")
             print(self.code_generator)
             return self.code_generator.generate(node)
 
@@ -700,7 +702,7 @@ class SemanticAnalyzer:
             expected_python_type = self.map_type(stmt_type)
             print('expected_python_type', expected_python_type)
             if not isinstance(node.value, expected_python_type):
-                raise Exception(f"Ошибка типов: {node.value} ({type(node.value).__name__}) != {stmt_type}")
+                self.raise_error(f"Ошибка типов: {node.value} ({type(node.value).__name__}) != {stmt_type}")
             return self.code_generator.generate(node)
         # Если фактор – литерал (например, число или строка)
         else:
@@ -709,12 +711,12 @@ class SemanticAnalyzer:
 
             if type_info and type_info.get('info', {}).get('type') == 'array':
                 # Если ожидается массив, нельзя назначать ему простой литерал.
-                raise Exception(f"Ошибка типов: нельзя присвоить литерал {node.value} массиву типа {stmt_type}")
+                self.raise_error(f"Ошибка типов: нельзя присвоить литерал {node.value} массиву типа {stmt_type}")
 
             # Если ожидается простой тип, проверяем соответствие типов.
             expected_python_type = self.map_type(stmt_type)
             if not isinstance(node.value, expected_python_type):
-                raise Exception(f"Ошибка типов: {node.value} ({type(node.value).__name__}) != {stmt_type}")
+                self.raise_error(f"Ошибка типов: {node.value} ({type(node.value).__name__}) != {stmt_type}")
 
             return self.code_generator.generate(node)
 
@@ -723,7 +725,7 @@ class SemanticAnalyzer:
         if isinstance(node, FunctionCallNode):
             func_info = self.symbol_table.lookup(node.identifier)
             if not func_info:
-                raise Exception(f"Ошибка: функция '{node.identifier}' не объявлена")
+                self.raise_error(f"Ошибка: функция '{node.identifier}' не объявлена")
             return func_info.get('return_type')
         elif isinstance(node, ExpressionNode):
             if node.relational_operator:
@@ -731,7 +733,7 @@ class SemanticAnalyzer:
 
                 right_type = self.get_expression_type(node.right, detailed)
                 if left_type != right_type:
-                    raise Exception(
+                    self.raise_error(
                         f"Ошибка типов: {left_type} != {right_type} в сравнении {node.relational_operator}"
                     )
                 return "boolean"
@@ -787,9 +789,9 @@ class SemanticAnalyzer:
         base_array_name, indices = self.flatten_array_access(node)
         array_info = self.symbol_table.lookup(base_array_name)
         if not array_info:
-            raise Exception(f"Ошибка: массив '{base_array_name}' не объявлен")
+            self.raise_error(f"Ошибка: массив '{base_array_name}' не объявлен")
         if array_info.get('info', {}).get('type') != 'array':
-            raise Exception(f"Ошибка: '{base_array_name}' не является массивом")
+            self.raise_error(f"Ошибка: '{base_array_name}' не является массивом")
 
         # Можно также добавить проверку количества индексов и границ,
         # но для определения типа достаточно вернуть тип элемента
@@ -814,7 +816,7 @@ class SemanticAnalyzer:
             current = current.array_name  # Move to the next (inner) node.
         # At the end, current should be the base array name (a string)
         if not isinstance(current, str):
-            raise Exception("Ошибка: не распознано имя массива при обращении")
+            self.raise_error("Ошибка: не распознано имя массива при обращении")
         return current, indices
 
     def get_array_identifier_from_expression(self, node):
@@ -844,7 +846,7 @@ class SemanticAnalyzer:
                     # Получаем тип выражения справа
                     expr_type = self.get_expression_type(node.expression)
                     if expr_type != 'array':
-                        raise Exception(
+                        self.raise_error(
                             f"Ошибка: массиву нельзя присвоить значение типа {expr_type}"
                         )
 
@@ -855,17 +857,17 @@ class SemanticAnalyzer:
 
                     # Проверяем совпадение типов элементов
                     if element_type != other_element_type:
-                        raise Exception(
+                        self.raise_error(
                             f"Ошибка: несовпадение типов элементов массивов ({element_type} != {other_element_type})"
                         )
                     # Проверяем совпадение размерностей
                     if stmt_info.get('dimensions') != other_array.get('info', {}).get('dimensions'):
-                        raise Exception("Ошибка: несовпадение размерностей массивов")
+                        self.raise_error("Ошибка: несовпадение размерностей массивов")
 
                 self.visit_expression_node(node.expression, stmt_type)
                 return self.code_generator.generate(node)
             else:
-                raise Exception(f"Ошибка: переменная {node.identifier} не объявлена")
+                self.raise_error(f"Ошибка: переменная {node.identifier} не объявлена")
 
             # Если идентификатор представляет собой обращение к массиву
         elif isinstance(node.identifier, ArrayAccessNode):
@@ -873,14 +875,14 @@ class SemanticAnalyzer:
             array_info = self.symbol_table.lookup(base_array_name)
 
             if not array_info:
-                raise Exception(f"Ошибка: массив '{base_array_name}' не объявлен")
+                self.raise_error(f"Ошибка: массив '{base_array_name}' не объявлен")
             if array_info.get('info', {}).get('type') != 'array':
-                raise Exception(f"Ошибка: '{base_array_name}' не является массивом")
+                self.raise_error(f"Ошибка: '{base_array_name}' не является массивом")
 
             # Проверяем индексы
             dimensions = array_info['info'].get('dimensions', [])
             if len(indices) != len(dimensions):
-                raise Exception(
+                self.raise_error(
                     f"Ошибка: массив '{base_array_name}' имеет {len(dimensions)} измерений, но передано {len(indices)} индексов"
                 )
 
@@ -888,7 +890,7 @@ class SemanticAnalyzer:
             for i, (index_expr, (lower_bound, upper_bound)) in enumerate(zip(indices, dimensions)):
                 index_value = self.evaluate_expression(index_expr)
                 if index_value is not None and not (lower_bound <= index_value <= upper_bound):
-                    raise Exception(
+                    self.raise_error(
                         f"Ошибка: индекс {index_value} выходит за границы [{lower_bound}, {upper_bound}] для измерения {i + 1}"
                     )
 
@@ -900,7 +902,7 @@ class SemanticAnalyzer:
             print(f"Debug: array element type = {element_type}, expression type = {expr_type}")
 
             if element_type != expr_type:
-                raise Exception(
+                self.raise_error(
                     f"Ошибка типов: нельзя присвоить значение типа {expr_type} элементу типа {element_type}"
                 )
 
@@ -914,25 +916,25 @@ class SemanticAnalyzer:
             # Теперь, определяем тип поля, чтобы проверить правую часть присваивания.
             field_type = self.get_record_field_type(node.identifier)
             if field_type is None:
-                raise Exception(f"Ошибка: не удалось определить тип для {node.identifier}")
+                self.raise_error(f"Ошибка: не удалось определить тип для {node.identifier}")
             self.visit_expression_node(node.expression, field_type)
             return self.code_generator.generate(node)
 
         else:
-            raise Exception("Ошибка: неверный тип идентификатора в операторе присваивания")
+            self.raise_error("Ошибка: неверный тип идентификатора в операторе присваивания")
 
     def visit_array_access_node(self, node: ArrayAccessNode, stmt):
         # Разворачиваем вложенные обращения: получаем базовое имя массива и список индексов
         base_array_name, indices = self.flatten_array_access(node)
         array_info = self.symbol_table.lookup(base_array_name)
         if not array_info:
-            raise Exception(f"Ошибка: массив '{base_array_name}' не объявлен")
+            self.raise_error(f"Ошибка: массив '{base_array_name}' не объявлен")
         if array_info.get('info', {}).get('type') != 'array':
-            raise Exception(f"Ошибка: '{base_array_name}' не является массивом")
+            self.raise_error(f"Ошибка: '{base_array_name}' не является массивом")
 
         dimensions = array_info['info'].get('dimensions', [])
         if len(indices) != len(dimensions):
-            raise Exception(
+            self.raise_error(
                 f"Ошибка: массив '{base_array_name}' имеет {len(dimensions)} измерений, но передано {len(indices)} индексов"
             )
 
@@ -946,7 +948,7 @@ class SemanticAnalyzer:
             else:
                 print(f"Индекс {i + 1}: {index_value} (допустимый диапазон: [{lower_bound}, {upper_bound}])")
                 if not (lower_bound <= index_value <= upper_bound):
-                    raise Exception(
+                    self.raise_error(
                         f"Ошибка: индекс {index_value} выходит за границы [{lower_bound}, {upper_bound}] для измерения {i + 1}"
                     )
 
@@ -972,7 +974,7 @@ class SemanticAnalyzer:
                 values = list(map(int, re.findall(r'"value": (\d+)', json_str)))
                 if values:
                     return sum(values)
-        else:raise Exception(f"Ошибка: не удалось вычислить индексное выражение: {expr}")
+        else:self.raise_error(f"Ошибка: не удалось вычислить индексное выражение: {expr}")
 
     def visit_record_field_access_node(self, node: RecordFieldAccessNode, stmt_type=None):
         """Обход обращения к полю записи (Record Field Access) с учетом структуры таблицы символов."""
@@ -983,25 +985,25 @@ class SemanticAnalyzer:
             # Если record_obj – это простой идентификатор.
             var_info = self.symbol_table.lookup(node.record_obj)
             if not var_info:
-                raise Exception(f"Ошибка: переменная/запись '{node.record_obj}' не объявлена")
+                self.raise_error(f"Ошибка: переменная/запись '{node.record_obj}' не объявлена")
             # Из переменной получаем имя типа записи.
             record_type = var_info.get("info", {}).get("record_type")
             if var_info.get('kind') == 'parameter':
                 record_type = str(var_info.get('type'))
             if not record_type:
-                raise Exception(f"Ошибка: переменная '{node.record_obj}' не является записью")
+                self.raise_error(f"Ошибка: переменная '{node.record_obj}' не является записью")
             # Ищем определение записи по record_type.
             print(record_type)
 
             record_def = self.symbol_table.lookup(record_type)
 
             if not record_def or record_def.get("type") != "record":
-                raise Exception(f"Ошибка: '{record_type}' не является корректной записью")
+                self.raise_error(f"Ошибка: '{record_type}' не является корректной записью")
             # Извлекаем информацию о полях.
             fields = record_def.get("fields_info", [])
             field_entry = next((f for f in fields if f["field_name"] == node.field_name), None)
             if not field_entry:
-                raise Exception(f"Ошибка: поле '{node.field_name}' отсутствует в записи '{record_type}'")
+                self.raise_error(f"Ошибка: поле '{node.field_name}' отсутствует в записи '{record_type}'")
             field_type = field_entry["field_type"]
 
         elif isinstance(node.record_obj, ArrayAccessNode):
@@ -1010,19 +1012,19 @@ class SemanticAnalyzer:
             base_array_name, indices = self.flatten_array_access(node.record_obj)
             array_info = self.symbol_table.lookup(base_array_name)
             if not array_info:
-                raise Exception(f"Ошибка: массив '{base_array_name}' не объявлен")
+                self.raise_error(f"Ошибка: массив '{base_array_name}' не объявлен")
             if array_info.get("info", {}).get("type") != "array":
-                raise Exception(f"Ошибка: '{base_array_name}' не является массивом")
+                self.raise_error(f"Ошибка: '{base_array_name}' не является массивом")
             element_type = array_info.get("info", {}).get("element_type")
             if not element_type:
-                raise Exception(f"Ошибка: тип элемента массива '{base_array_name}' не указан")
+                self.raise_error(f"Ошибка: тип элемента массива '{base_array_name}' не указан")
             record_def = self.symbol_table.lookup(element_type)
             if not record_def or record_def.get("type") != "record":
-                raise Exception(f"Ошибка: элемент массива '{base_array_name}' не является записью")
+                self.raise_error(f"Ошибка: элемент массива '{base_array_name}' не является записью")
             fields = record_def.get("fields_info", [])
             field_entry = next((f for f in fields if f["field_name"] == node.field_name), None)
             if not field_entry:
-                raise Exception(f"Ошибка: поле '{node.field_name}' отсутствует в записи '{element_type}'")
+                self.raise_error(f"Ошибка: поле '{node.field_name}' отсутствует в записи '{element_type}'")
             field_type = field_entry["field_type"]
 
         elif isinstance(node.record_obj, RecordFieldAccessNode):
@@ -1032,22 +1034,22 @@ class SemanticAnalyzer:
             print(inner_field_type)
             if not inner_field_type:
                 #self.visit_record_field_access_node(node.record_obj)
-                raise Exception(f"Ошибка: не удалось определить тип вложенной записи в {node.record_obj}")
+                self.raise_error(f"Ошибка: не удалось определить тип вложенной записи в {node.record_obj}")
             record_def = self.symbol_table.lookup(inner_field_type)
             if not record_def or record_def.get("type") != "record":
-                raise Exception(f"Ошибка: {node.record_obj} не является записью")
+                self.raise_error(f"Ошибка: {node.record_obj} не является записью")
             fields = record_def.get("fields_info", [])
             field_entry = next((f for f in fields if f["field_name"] == node.field_name), None)
             if not field_entry:
-                raise Exception(f"Ошибка: поле '{node.field_name}' отсутствует в записи {node.record_obj}")
+                self.raise_error(f"Ошибка: поле '{node.field_name}' отсутствует в записи {node.record_obj}")
             field_type = field_entry["field_type"]
 
         else:
-            raise Exception("Ошибка: неверный тип объекта записи при обращении к полю")
+            self.raise_error("Ошибка: неверный тип объекта записи при обращении к полю")
 
         # Если задан ожидаемый тип (например, в контексте присваивания), проверяем соответствие.
         if stmt_type and field_type != stmt_type:
-            raise Exception(
+            self.raise_error(
                 f"Ошибка типов: ожидаемый тип '{stmt_type}', а получен '{field_type}' для поля '{node.field_name}'"
             )
 
@@ -1123,30 +1125,30 @@ class SemanticAnalyzer:
         loop_var = node.identifier
         var_info = self.symbol_table.lookup(loop_var)
         if var_info is None:
-            raise Exception(f"Ошибка: переменная цикла '{loop_var}' не объявлена")
+            self.raise_error(f"Ошибка: переменная цикла '{loop_var}' не объявлена")
 
         # Verify that the loop variable is of type integer.
         var_type = var_info.get("info", {}).get("type")
         if var_type != "integer":
-            raise Exception(f"Ошибка: переменная цикла '{loop_var}' должна быть типа integer, а не {var_type}")
+            self.raise_error(f"Ошибка: переменная цикла '{loop_var}' должна быть типа integer, а не {var_type}")
 
         # Check that the start expression evaluates to an integer.
         start_type = self.get_expression_type(node.start_expr)
         if start_type != "integer":
-            raise Exception(f"Ошибка: начальное значение цикла FOR должно быть целого типа, получено {start_type}")
+            self.raise_error(f"Ошибка: начальное значение цикла FOR должно быть целого типа, получено {start_type}")
         # Visit the start expression.
         self.visit_expression_node(node.start_expr, "integer")
 
         # Check that the end expression evaluates to an integer.
         end_type = self.get_expression_type(node.end_expr)
         if end_type != "integer":
-            raise Exception(f"Ошибка: конечное значение цикла FOR должно быть целого типа, получено {end_type}")
+            self.raise_error(f"Ошибка: конечное значение цикла FOR должно быть целого типа, получено {end_type}")
         # Visit the end expression.
         self.visit_expression_node(node.end_expr, "integer")
 
         # Check that the direction is either "TO" or "DOWNTO".
         if node.direction not in ("to", "downto"):
-            raise Exception(f"Ошибка: направление цикла должно быть TO или DOWNTO, получено {node.direction}")
+            self.raise_error(f"Ошибка: направление цикла должно быть TO или DOWNTO, получено {node.direction}")
 
         # Optionally, you might mark the loop variable as read-only within the loop body,
         # or create a new scope for the loop body here.
@@ -1168,7 +1170,7 @@ class SemanticAnalyzer:
         # Определяем тип выражения условия.
         cond_type = self.get_expression_type(node.condition)
         if cond_type != "boolean":
-            raise Exception(f"Ошибка: условие WHILE должно быть булевого типа, получено {cond_type}")
+            self.raise_error(f"Ошибка: условие WHILE должно быть булевого типа, получено {cond_type}")
 
         # Посещаем условие с ожидаемым типом "boolean"
         self.visit_expression_node(node.condition, "boolean")
@@ -1190,7 +1192,7 @@ class SemanticAnalyzer:
         # Проверяем тип условия
         cond_type = self.get_expression_type(node.condition)
         if cond_type != "boolean":
-            raise Exception(f"Ошибка: условие IF должно быть булевого типа, получено {cond_type}")
+            self.raise_error(f"Ошибка: условие IF должно быть булевого типа, получено {cond_type}")
 
         # Посещаем условие с ожидаемым типом "boolean"
         self.visit_expression_node(node.condition, "boolean")
@@ -1213,13 +1215,13 @@ class SemanticAnalyzer:
         """
         proc_info = self.symbol_table.lookup(node.identifier)
         if not proc_info:
-            raise Exception(f"Ошибка: процедура '{node.identifier}' не объявлена")
+            self.raise_error(f"Ошибка: процедура '{node.identifier}' не объявлена")
         if proc_info.get('kind') != 'procedure':
-            raise Exception(f"Ошибка: '{node.identifier}' не является процедурой")
+            self.raise_error(f"Ошибка: '{node.identifier}' не является процедурой")
 
         expected_params = proc_info.get('parameters', [])
         if len(expected_params) != len(node.arguments):
-            raise Exception(
+            self.raise_error(
                 f"Ошибка: процедура '{node.identifier}' ожидает {len(expected_params)} аргументов, получено {len(node.arguments)}")
 
         for param, arg in zip(expected_params, node.arguments):
@@ -1233,17 +1235,17 @@ class SemanticAnalyzer:
                 dim = expected_type.dimensions
                 elem_type = expected_type.element_type
                 if dim != arg_type['dimensions']:
-                    raise Exception (
+                    self.raise_error (
                         f'Ошибка размерностей {dim} != {arg_type["dimensions"]}'
                     )
                 if elem_type != arg_type['element_type']:
-                    raise Exception(
+                    self.raise_error(
                         f'Ошибка типов {elem_type} != { arg_type["element_type"]}'
                     )
                 return self.code_generator.generate(node)
             arg_type = self.get_expression_type(arg)
             if arg_type != expected_type:
-                raise Exception(
+                self.raise_error(
                     f"Ошибка типов в вызове процедуры '{node.identifier}': для параметра '{param['name']}' ожидается {expected_type}, получено {arg_type}")
         return self.code_generator.generate(node)
 
@@ -1256,13 +1258,13 @@ class SemanticAnalyzer:
         """
         func_info = self.symbol_table.lookup(node.identifier)
         if not func_info:
-            raise Exception(f"Ошибка: функция '{node.identifier}' не объявлена")
+            self.raise_error(f"Ошибка: функция '{node.identifier}' не объявлена")
         if func_info.get('kind') != 'function':
-            raise Exception(f"Ошибка: '{node.identifier}' не является функцией")
+            self.raise_error(f"Ошибка: '{node.identifier}' не является функцией")
 
         expected_params = func_info.get('parameters', [])
         if len(expected_params) != len(node.arguments):
-            raise Exception(
+            self.raise_error(
                 f"Ошибка: функция '{node.identifier}' ожидает {len(expected_params)} аргументов, получено {len(node.arguments)}")
 
         for param, arg in zip(expected_params, node.arguments):
@@ -1270,7 +1272,7 @@ class SemanticAnalyzer:
             expected_type = param['type']
             arg_type = self.get_expression_type(arg)
             if str(arg_type).lower().strip() != str(expected_type).lower().strip():
-                raise Exception(
+                self.raise_error(
                     f"Ошибка типов в вызове функции '{node.identifier}': для параметра '{param['name']}' ожидается {expected_type}, получено {arg_type}")
         # Генерация кода для вызова функции. Можно также вернуть ожидаемый тип.
         generated_code = self.code_generator.generate(node)
@@ -1303,7 +1305,7 @@ class SemanticAnalyzer:
         """
         # Проверяем, что такое имя ещё не объявлено
         if self.symbol_table.lookup(node.identifier):
-            raise Exception(f"Ошибка: {node.kind} '{node.identifier}' уже объявлена")
+            self.raise_error(f"Ошибка: {node.kind} '{node.identifier}' уже объявлена")
 
         # Создаем запись для объявления с базовой информацией
         proc_info = {

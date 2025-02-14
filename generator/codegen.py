@@ -27,7 +27,6 @@ class CodeGenerator:
             return self.generate_record_field_access(node)
         elif isinstance(node, IfStatementNode):
             return self.generate_if_statement(node)
-        # Новые узлы для функций и процедур:
         elif isinstance(node, ProcedureOrFunctionDeclarationNode):
             return self.generate_proc_or_func_decl(node)
         elif isinstance(node, ProcedureCallNode):
@@ -132,35 +131,18 @@ class CodeGenerator:
               ]
           }
         """
-        # 1. Инициализация переменной цикла: j := i + 1
+
         init_assignment = {
             "type": "Assignment",
-            "target": {"type": "Variable", "name": node.identifier},  # j
-            "value": self.generate(node.start_expr)  # генерирует выражение i + 1
+            "target": {"type": "Variable", "name": node.identifier},
+            "value": self.generate(node.start_expr)
         }
 
-        # 2. В зависимости от направления цикла формируем условие и оператор обновления
+
         if node.direction.lower() == "to":
             condition = {
                 "type": "BinaryExpression",
                 "operator": "<=",
-                "left": {"type": "Variable", "name": node.identifier},  # j
-                "right": self.generate(node.end_expr)  # генерирует n
-            }
-            update = {
-                "type": "Assignment",
-                "target": {"type": "Variable", "name": node.identifier},  # j
-                "value": {
-                    "type": "BinaryOperation",
-                    "operator": "+",
-                    "left": {"type": "Variable", "name": node.identifier},  # j
-                    "right": {"type": "Integer", "value": 1}  # + 1
-                }
-            }
-        elif node.direction.lower() == "downto":
-            condition = {
-                "type": "BinaryExpression",
-                "operator": ">=",
                 "left": {"type": "Variable", "name": node.identifier},
                 "right": self.generate(node.end_expr)
             }
@@ -169,17 +151,14 @@ class CodeGenerator:
                 "target": {"type": "Variable", "name": node.identifier},
                 "value": {
                     "type": "BinaryOperation",
-                    "operator": "-",
+                    "operator": "+",
                     "left": {"type": "Variable", "name": node.identifier},
-                    "right": {"type": "Integer", "value": 1}
+                    "right": {"type": "Integer", "value": 1}  # + 1
                 }
             }
         else:
             raise Exception(f"Неподдерживаемое направление цикла: {node.direction}")
 
-        # 3. Генерируем цикл while, тело которого состоит из:
-        #    - тела исходного for-цикла
-        #    - оператора обновления переменной цикла
         while_node = {
             "type": "While",
             "condition": condition,
@@ -192,7 +171,6 @@ class CodeGenerator:
             }
         }
 
-        # 4. Возвращаем блок (Block), содержащий сначала инициализацию, затем цикл while
         return {
             "type": "Block",
             "statements": [
@@ -276,7 +254,6 @@ class CodeGenerator:
             "else": else_code
         }
 
-    # ===== Новые методы для функций и процедур =====
 
     def generate_proc_or_func_decl(self, node: ProcedureOrFunctionDeclarationNode):
         """

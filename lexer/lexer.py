@@ -1,3 +1,4 @@
+from custom_exceptions.lexer_error import LexerError
 from lexer.token_type import TokenType
 from lexer.token import Token
 
@@ -15,6 +16,9 @@ class Lexer:
         self.current_pos = 0
         self.line = 1
         self.column = 1
+
+    def raise_error(self, message):
+        raise LexerError(message, self.line , self.column)
 
     def next_char(self):
         """Возвращает текущий символ и смещает указатель."""
@@ -79,7 +83,8 @@ class Lexer:
                     string_value += next_char
                     self.next_char()
                 else:
-                    raise ValueError(f"Invalid escape sequence at line {self.line}, column {self.column}")
+                    self.raise_error(f"Неверная escape-последовательность в строке {self.line}, столбец {self.column}")
+                    #raise ValueError(f"Invalid escape sequence at line {self.line}, column {self.column}")
 
             else:
                 string_value += char
@@ -101,14 +106,17 @@ class Lexer:
         self.next_char()
 
         if self.current_pos >= len(self.text):
-            raise ValueError(f"Unterminated char literal at line {self.line}, column {self.column}")
+            self.raise_error(f"Не завершён символьный литерал на строке {self.line}, столбце {self.column}")
+            #raise ValueError(f"Unterminated char literal at line {self.line}, column {self.column}")
 
         char = self.next_char()
 
         # Проверяем длину символьного литерала
         if self.current_pos >= len(self.text) or self.text[self.current_pos] != "'":
-            raise ValueError(
-                f"Invalid char literal at line {self.line}, column {start_column}. Char literal must contain exactly one character")
+            self.raise_error(f"Некорректный символьный литерал на строке {self.line}, столбце {start_column}. "
+            "Символьный литерал должен содержать ровно один символ")
+            #raise ValueError(
+            #    f"Invalid char literal at line {self.line}, column {start_column}. Char literal must contain exactly one character")
 
         # Пропускаем закрывающую кавычку
         self.next_char()
@@ -224,7 +232,8 @@ class Lexer:
                 tokens.append(operator_token)
                 continue
 
-            raise ValueError(f"Unexpected character '{char}' at line {self.line}, column {self.column}")
+            #raise ValueError(f"Unexpected character '{char}' at line {self.line}, column {self.column}")
+            self.raise_error( f"Неожиданный символ '{char}' на строке {self.line}, столбце {self.column}")
 
         tokens.append(Token(TokenType.EOF, "EOF", self.line, self.column))
         return tokens
