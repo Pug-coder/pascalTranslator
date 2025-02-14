@@ -386,6 +386,17 @@ class Translator:
 
     def _translate_binary(self, expr, lvalue, sym_table=None):
         op = expr.get("operator")
+        op_mapping = {
+            "div": "/",
+            "mod": "%",
+            "and": "&",
+            "or": "|",
+            "+": "+",
+            "-": "-"
+        }
+        # Если оператор задан в любом регистре, приводим к нижнему
+        op = op_mapping.get(op.lower(), op)
+
         left = self.translate_expr(expr.get("left"), lvalue, sym_table)
         right = self.translate_expr(expr.get("right"), lvalue, sym_table)
         return f'({left} "{op}" {right})'

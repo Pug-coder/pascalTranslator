@@ -742,7 +742,8 @@ class Parser:
         """Expression = SimpleExpression [ RelationalOperator SimpleExpression ]"""
         left = self.parse_simple_expression()
         if self.match(TokenType.EQ) or self.match(TokenType.NEQ) or self.match(TokenType.LT) or \
-                self.match(TokenType.GT) or self.match(TokenType.LTE) or self.match(TokenType.GTE):
+                self.match(TokenType.GT) or self.match(TokenType.LTE) or self.match(TokenType.GTE) \
+                or self.match(TokenType.AND) or self.match(TokenType.OR):
             op = self.current_token().value
             self.pos += 1
             right = self.parse_simple_expression()
