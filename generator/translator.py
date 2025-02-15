@@ -70,10 +70,14 @@ class Translator:
         """
         Ищет символ в таблице символов.
         Если sym_table не передан, используется глобальная таблица.
+        Возвращает словарь с информацией о символе или None, если не найден.
         """
         if sym_table is None:
             sym_table = self.glob_sym_table
-        return sym_table.lookup(name)
+        result = sym_table.lookup(name)
+        if isinstance(result, SymbolTable):
+            result = result.symbols.get(name)
+        return result
 
     # ========================================================
     # Обработка таблицы символов (глобальных объявлений)
@@ -81,19 +85,28 @@ class Translator:
     def _parse_info(self, info_str):
         """
         Преобразует строковое представление словаря в настоящий словарь.
+        Если info_str уже является словарём, возвращает его.
+        Сначала пытаемся выполнить ast.literal_eval без модификаций.
+        Если возникает ошибка, пытаемся обернуть нестроковые идентификаторы (например, integer)
+        в кавычки, если они не являются числом или специальным литералом.
         """
-        info_str = re.sub(r":\s*([a-zA-Z_]\w*)(\s*[,}])", r': "\1"\2', info_str)
-
-        def symbol_table_replacer(match):
-            text = match.group(0)
-            return f'"{text}"' if "SymbolTable" in text else "None"
-
-        cleaned = re.sub(r"<(?!>)[^>]+>", symbol_table_replacer, info_str)
+        if not isinstance(info_str, str):
+            return info_str
         try:
-            return ast.literal_eval(cleaned)
+            # Попытка сразу разобрать без изменений.
+            return ast.literal_eval(info_str)
         except Exception as e:
-            print(f"Ошибка при парсинге: {info_str}\n{e}")
-            return {}
+            print(f"Ошибка при первичном парсинге: {info_str}\n{e}")
+            # Используем регулярное выражение, которое оборачивает в кавычки
+            # все слова, начинающиеся с буквы или нижнего подчеркивания,
+            # за исключением тех, что являются числом, True, False или None.
+            pattern = r":\s*(?!\d)(?!True\b)(?!False\b)(?!None\b)([a-zA-Z_]\w*)(\s*[,}])"
+            info_str_fixed = re.sub(pattern, r': "\1"\2', info_str)
+            try:
+                return ast.literal_eval(info_str_fixed)
+            except Exception as e2:
+                print(f"Ошибка при повторном парсинге: {info_str_fixed}\n{e2}")
+                return {}
 
     def translate_record(self, name, info):
         """
@@ -208,10 +221,13 @@ class Translator:
         Здесь обрабатываются параметры, затем локальные объявления (из local_symbol_table)
         так же, как в методе translate для глобальных объявлений, и затем тело функции.
         """
+        # 1. Обработка параметров
         params = info.get("parameters", [])
         params_list = " ".join(param["name"] for param in params)
 
+        # 2. Обработка локальной таблицы символов
         local_sym_table = info.get("local_symbol_table", {})
+        # Если local_sym_table не является объектом SymbolTable, оборачиваем его в SymbolTable
         if not hasattr(local_sym_table, "lookup"):
             tmp = SymbolTable()
             tmp.symbols = local_sym_table
@@ -235,13 +251,16 @@ class Translator:
         else:
             local_decl_block = ";; нет локальных переменных"
 
+        # 3. Обработка тела функции
         block = info.get("block_code", {})
         if block.get("type") in ("block", "Block"):
-            print('loc', local_sym_table.symbols)
+            # Выводим содержимое локальной таблицы символов для отладки (преобразуем symbols в словарь)
+            print('loc', dict(local_sym_table.symbols))
             body_code = self.translate_block(block, indent="  ", sym_table=local_sym_table)
         else:
             body_code = ";; тело функции отсутствует"
 
+        # 4. Если это функция (а не процедура), добавляем оператор возврата
         ret_line = ""
         if info.get("kind") == "function":
             ret_line = f"  (return {name})"
